@@ -80,8 +80,6 @@ jobs:
       TELEPORT_COMMIT: ${{ needs.prepare.outputs.commit }}
       SOURCE_DIR: ${{ github.workspace }}/teleport-source
       OUT_DIR: ${{ github.workspace }}/dist/linux-amd64
-      CARGO_HOME: ${{ runner.temp }}/teleport-cargo
-      RUSTUP_HOME: ${{ runner.temp }}/teleport-rustup
       BUILD_JOBS: ${{ inputs.build_jobs || '2' }}
       CARGO_BUILD_JOBS: ${{ inputs.build_jobs || '2' }}
       GOTOOLCHAIN: local
@@ -144,9 +142,13 @@ jobs:
 
       - name: Install pinned Rust and pnpm
         env:
+          CARGO_HOME: ${{ runner.temp }}/teleport-cargo
+          RUSTUP_HOME: ${{ runner.temp }}/teleport-rustup
           RUST_VERSION: ${{ needs.prepare.outputs.rust }}
           PNPM_VERSION: ${{ needs.prepare.outputs.pnpm }}
         run: |
+          echo "CARGO_HOME=$CARGO_HOME" >> "$GITHUB_ENV"
+          echo "RUSTUP_HOME=$RUSTUP_HOME" >> "$GITHUB_ENV"
           curl --fail --location --retry 3 \
             https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init \
             --output "$RUNNER_TEMP/rustup-init"
