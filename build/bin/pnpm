@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# make full installs the entire JS workspace by default, including Connect's
+# Electron postinstall. This build produces the server Web UI and CLI tools.
+pnpm_binary="${PNPM_REAL_BIN:-/usr/local/bin/pnpm}"
+if [[ "${1:-}" == install ]]; then
+  exec "${pnpm_binary}" "$@" --filter='!@gravitational/teleterm'
+fi
+exec "${pnpm_binary}" "$@"
