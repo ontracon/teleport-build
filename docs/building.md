@@ -137,7 +137,20 @@ tags fail before build jobs start. Before packaging, the release verifier
 checks the version, commit, platform, all six binary hashes, passing test marker,
 and every recorded integration hash against the current adapter and patches.
 The workflow publishes archives and checksums only after Linux and all native
-client jobs succeed. Repeat releases refresh the generated title and notes.
+client jobs succeed.
+
+Each publication creates a numbered release, such as
+`v18.10.0-build.42.1`, with a title ending in `(build 42.1)`. The numbers are
+the workflow run number and run attempt; numbering is workflow-wide rather
+than restarting for each Teleport version. A new dispatch increments the run
+number, and rerunning a workflow increments the attempt. Archive and checksum
+filenames also include `-build.42.1`, while the binaries retain the upstream
+Teleport version.
+
+Each release tag targets the build repository commit used by that run, and
+the generated notes record the upstream commit, build repository commit, and
+release build number. Existing releases, tags, notes, and assets are preserved;
+if a release tag already exists, publication fails rather than replacing it.
 
 The Linux build and release jobs default to GitHub-hosted `ubuntu-24.04`.
 The `runner` dispatch input accepts a JSON array of labels to select another

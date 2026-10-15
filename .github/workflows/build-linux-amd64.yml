@@ -1,5 +1,5 @@
 name: Build Teleport and tsh clients
-run-name: Build and release Teleport ${{ inputs.tag }} with Zitadel and tsh clients
+run-name: Build and release Teleport ${{ inputs.tag }} build ${{ github.run_number }}.${{ github.run_attempt }} with Zitadel and tsh clients
 
 on:
   workflow_dispatch:
@@ -280,6 +280,7 @@ jobs:
       TELEPORT_TAG: ${{ inputs.tag }}
       TELEPORT_VERSION: ${{ needs.prepare.outputs.version }}
       TELEPORT_COMMIT: ${{ needs.prepare.outputs.commit }}
+      RELEASE_BUILD: ${{ github.run_number }}.${{ github.run_attempt }}
     steps:
       - name: Ensure GitHub CLI is available
         run: |
@@ -309,12 +310,19 @@ jobs:
         run: |
           test -f "dist/$ARCHIVE"
           (cd dist && sha256sum --check "$ARCHIVE.sha256")
-          release_assets=("dist/$ARCHIVE" "dist/$ARCHIVE.sha256")
+          archives=("dist/$ARCHIVE")
           for suffix in windows-amd64.zip darwin-arm64.tar.gz darwin-amd64.tar.gz; do
             asset="tsh-${TELEPORT_VERSION}-${suffix}"
             test -f "dist/$asset"
             (cd dist && sha256sum --check "$asset.sha256")
-            release_assets+=("dist/$asset" "dist/$asset.sha256")
+            archives+=("dist/$asset")
+          done
+          release_assets=()
+          for archive in "${archives[@]}"; do
+            numbered_archive="${archive/${TELEPORT_VERSION}/${TELEPORT_VERSION}-build.${RELEASE_BUILD}}"
+            mv -- "$archive" "$numbered_archive"
+            (cd dist && sha256sum "${numbered_archive#dist/}") > "$numbered_archive.sha256"
+            release_assets+=("$numbered_archive" "$numbered_archive.sha256")
           done
           notes_file="$RUNNER_TEMP/teleport-release-notes.md"
           python3 - <<'PY' > "$notes_file"
@@ -322,22 +330,18 @@ jobs:
           print(f"Teleport {os.environ['TELEPORT_TAG']} built from pinned Community source with the custom Zitadel OIDC integration for linux/amd64.")
           print(f"\nUpstream source commit: `{os.environ['TELEPORT_COMMIT']}`.")
           print(f"Build repository commit: `{os.environ['GITHUB_SHA']}`.")
+          print(f"Release build: `{os.environ['RELEASE_BUILD']}`.")
           print("\nIncludes all six binaries, embedded Web UI with Zitadel connector management and configurable account labels, LICENSE, manifest with integration source hashes, binary checksums, and passing upstream test reports. The shared build also runs adapter, Auth/Proxy bridge, and account-label tests. FIDO2 is disabled; PAM, BPF, and Rust Desktop support are included.")
           print("\nZitadel support is enabled by default in the Linux server. Configure a native Zitadel OIDC connector to use it.")
           print("\nSeparate tsh archives are included for Windows amd64 and macOS arm64/amd64. Clients are built natively with CGO, Rust RDP decoding, and PIV; macOS includes Touch ID. FIDO2 remains disabled. Each client passes executable header/build metadata checks and native version/help checks. Distribution signing and notarization are not configured.")
           print("\nLinux binaries are compiled in Debian Bookworm and require compatible runtime libraries. Verify each archive checksum before extracting.")
           PY
-          release_title="Teleport $TELEPORT_TAG with Zitadel and tsh clients"
-          if gh release view "$TELEPORT_TAG" --json tagName >/dev/null 2>&1; then
-            gh release upload "$TELEPORT_TAG" \
-              "${release_assets[@]}" --clobber
-            gh release edit "$TELEPORT_TAG" --title "$release_title" --notes-file "$notes_file"
-          else
-            release_flags=(--target "$GITHUB_SHA" --title "$release_title" --notes-file "$notes_file")
-            if [[ "${TELEPORT_VERSION%%+*}" == *-* ]]; then
-              release_flags+=(--prerelease)
-            fi
-            gh release create "$TELEPORT_TAG" \
-              "${release_assets[@]}" \
-              "${release_flags[@]}"
+          release_tag="${TELEPORT_TAG}-build.${RELEASE_BUILD}"
+          release_title="Teleport $TELEPORT_TAG with Zitadel and tsh clients (build $RELEASE_BUILD)"
+          release_flags=(--target "$GITHUB_SHA" --title "$release_title" --notes-file "$notes_file")
+          if [[ "${TELEPORT_VERSION%%+*}" == *-* ]]; then
+            release_flags+=(--prerelease)
           fi
+          gh release create "$release_tag" \
+            "${release_assets[@]}" \
+            "${release_flags[@]}"
