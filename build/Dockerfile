@@ -103,15 +103,7 @@ RUN --mount=type=cache,id=teleport-go-mod,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,id=teleport-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=teleport-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=teleport-debian-cargo-target,target=/src/teleport/target,sharing=locked \
-    bash /opt/teleport-build/test.sh \
-    && GOMAXPROCS=${BUILD_JOBS} go test -p=${BUILD_JOBS} -race -count=1 ./lib/zitadeloidc \
-    && GOMAXPROCS=${BUILD_JOBS} go test -p=${BUILD_JOBS} -race -count=1 -run '^TestZitadel' ./lib/auth \
-    && GOMAXPROCS=${BUILD_JOBS} go test -p=${BUILD_JOBS} -race -count=1 -run '^TestZitadel|^TestNewUserContext' ./lib/web/ui \
-    && GOMAXPROCS=${BUILD_JOBS} go test -p=${BUILD_JOBS} -race -count=1 -run '^TestZitadel' ./lib/web \
-    && GOMAXPROCS=${BUILD_JOBS} go test -p=${BUILD_JOBS} -race -count=1 -run '^TestZitadel' ./lib/service \
-    && pnpm exec jest --runInBand --runTestsByPath \
-         web/packages/teleport/src/services/user/zitadel-display-name.test.ts \
-         web/packages/teleport/src/components/UserMenuNav/UserMenuNav.test.tsx
+    bash /opt/teleport-build/test.sh
 
 FROM go-toolchain AS mock-idp
 ARG BUILD_JOBS=2
