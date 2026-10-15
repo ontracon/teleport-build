@@ -1,0 +1,389 @@
+diff --git a/lib/web/resources.go b/lib/web/resources.go
+index 83fbfee9811678ab40fcfb6ecf245155a17a36cd..110a73addd7d1724d051247401e877ff3f0aff5c 100644
+--- a/lib/web/resources.go
++++ b/lib/web/resources.go
+@@ -213,7 +213,7 @@ func (h *Handler) getGithubConnectorsHandle(w http.ResponseWriter, r *http.Reque
+ 		return nil, trace.Wrap(err)
+ 	}
+ 
+-	defaultConnectorName, defaultConnectorType, err := ProcessDefaultConnector(r.Context(), clt, connectors)
++	defaultConnectorName, defaultConnectorType, err := configuredAuthDefault(r.Context(), clt)
+ 	if err != nil {
+ 		return nil, trace.Wrap(err)
+ 	}
+@@ -228,7 +228,7 @@ func (h *Handler) getGithubConnectorsHandle(w http.ResponseWriter, r *http.Reque
+ // ProcessDefaultConnector returns the default connector type and validates that the provided connectors list contains the default connector that is set in the auth preference.
+ // If it isn't, it will return a fallback connector which should be used as the default, as well as update the actual auth preference to reflect the change.
+ func ProcessDefaultConnector(ctx context.Context, clt authclient.ClientI, connectors []ui.ResourceItem) (connectorName string, connectorType string, err error) {
+-	authPref, err := clt.GetAuthPreference(ctx)
++	authPref, err := authoritativeAuthPreference(ctx, clt)
+ 	if err != nil {
+ 		return "", "", trace.Wrap(err, "failed to get auth preference")
+ 	}
+@@ -307,7 +307,7 @@ func (h *Handler) deleteGithubConnector(w http.ResponseWriter, r *http.Request,
+ 	defaultConnectorType := authPref.GetType()
+ 	// If the connector being deleted is the default, have the auth preference fallback to another connector.
+ 	if defaultConnectorType == constants.Github && defaultConnectorName == connectorName {
+-		connectors, err := getGithubConnectors(r.Context(), clt)
++		connectors, err := supportedAuthConnectors(r.Context(), clt)
+ 		if err != nil {
+ 			return nil, trace.Wrap(err)
+ 		}
+diff --git a/web/packages/teleport/src/AuthConnectors/AuthConnectors.tsx b/web/packages/teleport/src/AuthConnectors/AuthConnectors.tsx
+index 87366bf88f6b62898495507c7036c232fc9d8e54..e670d13548d8bf9af02fdf1fa8ef4d75f038e006 100644
+--- a/web/packages/teleport/src/AuthConnectors/AuthConnectors.tsx
++++ b/web/packages/teleport/src/AuthConnectors/AuthConnectors.tsx
+@@ -17,7 +17,7 @@
+  */
+ 
+ import { useCallback, useEffect, useMemo, useState } from 'react';
+-import { useHistory } from 'react-router';
++import { useHistory, useParams } from 'react-router';
+ 
+ import { Alert, Box, Flex, Indicator } from 'design';
+ import { H2 } from 'design/Text/Text';
+@@ -31,6 +31,7 @@ import { useAsync } from 'shared/hooks/useAsync';
+ import {
+   ResponsiveAddButton,
+   ResponsiveFeatureHeader,
++  ResponsiveHeaderActions,
+ } from 'teleport/AuthConnectors/styles/AuthConnectors.styles';
+ import { FeatureBox, FeatureHeaderTitle } from 'teleport/components/Layout';
+ import { Route, Switch } from 'teleport/components/Router';
+@@ -40,8 +41,8 @@ import { DefaultAuthConnector, Resource } from 'teleport/services/resources';
+ import useTeleport from 'teleport/useTeleport';
+ 
+ import { GitHubConnectorEditor } from './AuthConnectorEditor';
++import { ZitadelConnectorEditor } from './AuthConnectorEditor/ZitadelConnectorEditor';
+ import { ConnectorList } from './ConnectorList';
+-import { CtaConnectors } from './ConnectorList/CTAConnectors';
+ import DeleteConnectorDialog from './DeleteConnectorDialog';
+ import EmptyList from './EmptyList';
+ import templates from './templates';
+@@ -58,12 +59,12 @@ export function AuthConnectorsContainer() {
+       <Route
+         key="auth-connector-edit"
+         path={cfg.routes.ssoConnector.edit}
+-        render={() => <GitHubConnectorEditor />}
++        render={() => <ConnectorEditor />}
+       />
+       <Route
+         key="auth-connector-new"
+         path={cfg.routes.ssoConnector.create}
+-        render={() => <GitHubConnectorEditor isNew={true} />}
++        render={() => <ConnectorEditor isNew={true} />}
+       />
+       <Route
+         key="auth-connector-list"
+@@ -75,21 +76,31 @@ export function AuthConnectorsContainer() {
+   );
+ }
+ 
++function ConnectorEditor({ isNew = false }) {
++  const { connectorType } = useParams<{ connectorType: string }>();
++  if (connectorType === 'oidc') return <ZitadelConnectorEditor isNew={isNew} />;
++  if (connectorType === 'github')
++    return <GitHubConnectorEditor isNew={isNew} />;
++  return <Alert>Unsupported connector type.</Alert>;
++}
++
+ /**
+  * AuthConnectors is the auth connectors list page.
+  */
+ export function AuthConnectors() {
+   const ctx = useTeleport();
+-  const [items, setItems] = useState<Resource<'github'>[]>([]);
++  const [items, setItems] = useState<Resource<'github' | 'oidc'>[]>([]);
+   const [defaultConnector, setDefaultConnector] =
+     useState<DefaultAuthConnector>();
+ 
+   const [fetchAttempt, fetchConnectors] = useAsync(
+     useCallback(async () => {
+-      return await ctx.resourceService.fetchGithubConnectors().then(res => {
+-        setItems(res.connectors);
+-        setDefaultConnector(res.defaultConnector);
+-      });
++      return await ctx.resourceService
++        .fetchConfiguredAuthConnectors()
++        .then(res => {
++          setItems(res.connectors);
++          setDefaultConnector(res.defaultConnector);
++        });
+     }, [ctx.resourceService])
+   );
+ 
+@@ -108,10 +119,12 @@ export function AuthConnectors() {
+     });
+   }
+ 
+-  function remove(name: string) {
+-    return ctx.resourceService
+-      .deleteGithubConnector(name)
+-      .then(fetchConnectors);
++  function remove(name: string, kind: 'github' | 'oidc') {
++    const request =
++      kind === 'oidc'
++        ? ctx.resourceService.deleteZitadelConnector(name)
++        : ctx.resourceService.deleteGithubConnector(name);
++    return request.then(fetchConnectors);
+   }
+ 
+   useEffect(() => {
+@@ -144,16 +157,26 @@ export function AuthConnectors() {
+     <FeatureBox>
+       <ResponsiveFeatureHeader>
+         <FeatureHeaderTitle>Auth Connectors</FeatureHeaderTitle>
+-        <InfoGuideButton config={{ guide: <InfoGuide isGitHub={true} /> }}>
++        <ResponsiveHeaderActions>
+           <ResponsiveAddButton
+             fill="border"
+             onClick={() =>
+-              history.push(cfg.getCreateAuthConnectorRoute('github'))
++              history.push(cfg.getCreateAuthConnectorRoute('oidc'))
+             }
+           >
+-            New GitHub Connector
++            New Zitadel Connector
+           </ResponsiveAddButton>
+-        </InfoGuideButton>
++          <InfoGuideButton config={{ guide: <InfoGuide isGitHub={true} /> }}>
++            <ResponsiveAddButton
++              fill="border"
++              onClick={() =>
++                history.push(cfg.getCreateAuthConnectorRoute('github'))
++              }
++            >
++              New GitHub Connector
++            </ResponsiveAddButton>
++          </InfoGuideButton>
++        </ResponsiveHeaderActions>
+       </ResponsiveFeatureHeader>
+       {fetchAttempt.status === 'error' && (
+         <Alert>{fetchAttempt.statusText}</Alert>
+@@ -176,8 +199,12 @@ export function AuthConnectors() {
+               )}
+               {isEmpty ? (
+                 <EmptyList
+-                  onCreate={() =>
+-                    history.push(cfg.getCreateAuthConnectorRoute('github'))
++                  onCreate={kind =>
++                    history.push(
++                      cfg.getCreateAuthConnectorRoute(
++                        kind === 'oidc' ? 'oidc' : 'github'
++                      )
++                    )
+                   }
+                   isLocalDefault={defaultConnector.type === 'local'}
+                 />
+@@ -190,7 +217,24 @@ export function AuthConnectors() {
+                 />
+               )}
+             </Box>
+-            <CtaConnectors />
++            <Flex gap={3}>
++              <ResponsiveAddButton
++                fill="border"
++                onClick={() =>
++                  history.push(cfg.getCreateAuthConnectorRoute('oidc'))
++                }
++              >
++                Set Up Zitadel
++              </ResponsiveAddButton>
++              <ResponsiveAddButton
++                fill="border"
++                onClick={() =>
++                  history.push(cfg.getCreateAuthConnectorRoute('github'))
++                }
++              >
++                Set Up GitHub
++              </ResponsiveAddButton>
++            </Flex>
+           </Flex>
+         </Flex>
+       )}
+@@ -199,7 +243,7 @@ export function AuthConnectors() {
+           name={resources.item.name}
+           kind={resources.item.kind}
+           onClose={resources.disregard}
+-          onDelete={() => remove(resources.item.name)}
++          onDelete={() => remove(resources.item.name, resources.item.kind)}
+           isDefault={defaultConnector.name === resources.item.name}
+           nextDefault={nextDefaultConnector}
+         />
+diff --git a/web/packages/teleport/src/AuthConnectors/ConnectorList/ConnectorList.tsx b/web/packages/teleport/src/AuthConnectors/ConnectorList/ConnectorList.tsx
+index 902540a3a0709e5a18cffba2c897291df3e7ece8..6f655b121b986da5a12a4ea73698656cb50c0906 100644
+--- a/web/packages/teleport/src/AuthConnectors/ConnectorList/ConnectorList.tsx
++++ b/web/packages/teleport/src/AuthConnectors/ConnectorList/ConnectorList.tsx
+@@ -43,7 +43,7 @@ export function ConnectorList<T extends KindAuthConnectors>({
+   const $items = items.map(item => {
+     const { id, name, kind } = item;
+ 
+-    const Icon = getSsoIcon(kind, name);
++    const Icon = getSsoIcon(kind, kind === 'oidc' ? 'zitadel' : name);
+ 
+     return (
+       <AuthConnectorTile
+@@ -59,6 +59,7 @@ export function ConnectorList<T extends KindAuthConnectors>({
+         onEdit={() => history.push(cfg.getEditAuthConnectorRoute(kind, name))}
+         onDelete={onDelete}
+         name={name}
++        customDesc={kind === 'oidc' ? 'Zitadel OIDC Connector' : undefined}
+       />
+     );
+   });
+diff --git a/web/packages/teleport/src/AuthConnectors/EmptyList/EmptyList.tsx b/web/packages/teleport/src/AuthConnectors/EmptyList/EmptyList.tsx
+index 60743996a13ae4093cebf8441be2c24049894028..942914dd704fd8856e0c7b0119ce735f77c76c0f 100644
+--- a/web/packages/teleport/src/AuthConnectors/EmptyList/EmptyList.tsx
++++ b/web/packages/teleport/src/AuthConnectors/EmptyList/EmptyList.tsx
+@@ -26,6 +26,17 @@ export default function EmptyList({ onCreate, isLocalDefault }: Props) {
+   return (
+     <AuthConnectorsGrid>
+       <LocalConnectorTile isDefault={isLocalDefault} />
++      <AuthConnectorTile
++        key="zitadel-placeholder"
++        kind="oidc"
++        id="zitadel-placeholder"
++        name="Zitadel"
++        Icon={getSsoIcon('oidc', 'zitadel')}
++        isDefault={false}
++        isPlaceholder={true}
++        customDesc="Zitadel OIDC Connector"
++        onSetup={() => onCreate('oidc')}
++      />
+       <AuthConnectorTile
+         key="github-placeholder"
+         kind="github"
+diff --git a/web/packages/teleport/src/AuthConnectors/ssoIcons/getSsoIcon.tsx b/web/packages/teleport/src/AuthConnectors/ssoIcons/getSsoIcon.tsx
+index a675d50c840b72a2dde7c899071f548e0a2158f1..b63522cac4e80b51fdd08ddbcd8df9c0f691e1e9 100644
+--- a/web/packages/teleport/src/AuthConnectors/ssoIcons/getSsoIcon.tsx
++++ b/web/packages/teleport/src/AuthConnectors/ssoIcons/getSsoIcon.tsx
+@@ -79,6 +79,24 @@ export default function getSsoIcon(
+ function guessIconFromName(connectorName: string) {
+   const name = connectorName.toLocaleLowerCase();
+ 
++  if (name.includes('zitadel')) {
++    return () => (
++      <Flex
++        height="61px"
++        width="61px"
++        alignItems="center"
++        justifyContent="center"
++        bg="brand"
++        color="text.primaryInverse"
++        borderRadius={3}
++        fontSize="32px"
++        fontWeight="bold"
++      >
++        Z
++      </Flex>
++    );
++  }
++
+   if (name.includes('okta')) {
+     return () => (
+       <Flex height="61px" alignItems="center" justifyContent="center">
+diff --git a/web/packages/teleport/src/AuthConnectors/styles/AuthConnectors.styles.ts b/web/packages/teleport/src/AuthConnectors/styles/AuthConnectors.styles.ts
+index ac537645cb9f35f3ef2bd86736353ccc9fb33032..3472f6da957e9d6fec07f9e8ef84a1735f23dfe8 100644
+--- a/web/packages/teleport/src/AuthConnectors/styles/AuthConnectors.styles.ts
++++ b/web/packages/teleport/src/AuthConnectors/styles/AuthConnectors.styles.ts
+@@ -18,7 +18,7 @@
+ 
+ import styled from 'styled-components';
+ 
+-import { Box, Button, Subtitle1 } from 'design';
++import { Box, Button, Flex, Subtitle1 } from 'design';
+ 
+ import { FeatureHeader } from 'teleport/components/Layout';
+ 
+@@ -35,6 +35,17 @@ export const ResponsiveFeatureHeader = styled(FeatureHeader)`
+   }
+ `;
+ 
++export const ResponsiveHeaderActions = styled(Flex)`
++  align-items: center;
++  gap: ${p => p.theme.space[3]}px;
++
++  @media screen and (max-width: ${p => p.theme.breakpoints.tablet}) {
++    width: 100%;
++    flex-direction: column;
++    align-items: stretch;
++  }
++`;
++
+ export const MobileDescription = styled(Subtitle1)`
+   margin-bottom: ${p => p.theme.space[3]}px;
+   @media screen and (min-width: ${p => p.theme.breakpoints.tablet}) {
+diff --git a/web/packages/teleport/src/AuthConnectors/templates/index.ts b/web/packages/teleport/src/AuthConnectors/templates/index.ts
+index 2a70a5e6c7a7b414d0103c4fc33b446787d4bd07..eedfb1cecea8dc5d600ad659ae345c10c7661fc4 100644
+--- a/web/packages/teleport/src/AuthConnectors/templates/index.ts
++++ b/web/packages/teleport/src/AuthConnectors/templates/index.ts
+@@ -17,8 +17,9 @@
+  */
+ 
+ import github from './github.yaml?raw';
++import oidc from './zitadel.yaml?raw';
+ 
+-const templates = { github };
++const templates = { github, oidc };
+ 
+ export { github };
+ export default templates;
+diff --git a/web/packages/teleport/src/services/resources/resource.ts b/web/packages/teleport/src/services/resources/resource.ts
+index 89a9c9480ca1016f949229e893caa29fc1a97e55..1205042f3853eabe36de04654913fcf3e6237478 100644
+--- a/web/packages/teleport/src/services/resources/resource.ts
++++ b/web/packages/teleport/src/services/resources/resource.ts
+@@ -82,6 +82,54 @@ class ResourceService {
+       });
+   }
+ 
++  async fetchConfiguredAuthConnectors(): Promise<{
++    defaultConnector: DefaultAuthConnector;
++    connectors: Resource<'github' | 'oidc'>[];
++  }> {
++    const response = await api.get('/v1/webapi/zitadel/connectors');
++    return {
++      defaultConnector: {
++        name: response.defaultConnectorName,
++        type: response.defaultConnectorType,
++      },
++      connectors: makeResourceList<'github' | 'oidc'>(response.connectors),
++    };
++  }
++
++  fetchZitadelConnector(name: string) {
++    return api
++      .get('/v1/webapi/zitadel/connectors/' + encodeURIComponent(name))
++      .then(response => makeResource<'oidc'>(response));
++  }
++
++  async createZitadelConnector(content: string) {
++    const challenge = await auth.getMfaChallengeResponseForAdminAction(true);
++    return api
++      .post('/v1/webapi/zitadel/connectors', { content }, undefined, challenge)
++      .then(response => makeResource<'oidc'>(response));
++  }
++
++  async updateZitadelConnector(name: string, content: string) {
++    const challenge = await auth.getMfaChallengeResponseForAdminAction(true);
++    return api
++      .put(
++        '/v1/webapi/zitadel/connectors/' + encodeURIComponent(name),
++        { content },
++        undefined,
++        challenge
++      )
++      .then(response => makeResource<'oidc'>(response));
++  }
++
++  async deleteZitadelConnector(name: string) {
++    const challenge = await auth.getMfaChallengeResponseForAdminAction(true);
++    return api.delete(
++      '/v1/webapi/zitadel/connectors/' + encodeURIComponent(name),
++      undefined,
++      challenge
++    );
++  }
++
+   async fetchGithubConnectors(): Promise<{
+     defaultConnector: DefaultAuthConnector;
+     connectors: Resource<'github'>[];

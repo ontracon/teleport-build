@@ -1,0 +1,45 @@
+name: Check Teleport integration patches
+
+on:
+  push:
+    paths:
+      - 'integration/**'
+      - 'oidc-adapter/**'
+      - 'build/prepare-teleport-source.sh'
+      - 'tests/build/**'
+      - '.github/workflows/check-teleport-patches.yml'
+  pull_request:
+    paths:
+      - 'integration/**'
+      - 'oidc-adapter/**'
+      - 'build/prepare-teleport-source.sh'
+      - 'tests/build/**'
+      - '.github/workflows/check-teleport-patches.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patches:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read supported upstream commit
+        id: upstream
+        run: |
+          commit="$(cat integration/upstream.commit)"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      - name: Check out pinned Teleport source
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: gravitational/teleport
+          ref: ${{ steps.upstream.outputs.commit }}
+          path: upstream
+          persist-credentials: false
+      - name: Check patch applicability and source-preparation guards
+        run: make test-patches SOURCE_DIR="$GITHUB_WORKSPACE/upstream"

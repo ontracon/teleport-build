@@ -1,0 +1,15 @@
+# Archived experiments and superseded documentation.
+/deprecated/
+
+# Local build outputs and caches.
+/dist/
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/
+
+# Development credentials, certificates, and browser reports.
+/dev/generated/
+/dev/generated-real/
+/tests/integration/test-results/
+/tests/build/test-results/

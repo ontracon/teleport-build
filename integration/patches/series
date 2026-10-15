@@ -1,0 +1,4 @@
+# Ordered upstream edits; new files live in integration/overlay/.
+0001-register-zitadel-plugin.patch
+0002-display-verified-email.patch
+0003-manage-zitadel-connectors.patch

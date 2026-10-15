@@ -1,0 +1,14 @@
+diff --git a/lib/service/service.go b/lib/service/service.go
+index 8f4732c5a82b5a63b3123f24fe8b6d8ab80986e8..74fcca9cfb7561fa69ac529e531fd52d39cec834 100644
+--- a/lib/service/service.go
++++ b/lib/service/service.go
+@@ -1233,6 +1233,9 @@ func NewTeleport(cfg *servicecfg.Config) (_ *TeleportProcess, err error) {
+ 	if cfg.PluginRegistry == nil {
+ 		cfg.PluginRegistry = plugin.NewRegistry()
+ 	}
++	if err := registerZitadelPlugin(cfg.PluginRegistry); err != nil {
++		return nil, trace.Wrap(err)
++	}
+ 
+ 	if cfg.DatabaseREPLRegistry == nil {
+ 		cfg.DatabaseREPLRegistry = dbrepl.NewREPLGetter(map[string]dbrepl.REPLNewFunc{

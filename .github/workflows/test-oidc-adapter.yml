@@ -1,0 +1,35 @@
+name: Test Zitadel OIDC adapter
+
+on:
+  push:
+    paths:
+      - 'oidc-adapter/**'
+      - '.github/workflows/test-oidc-adapter.yml'
+  pull_request:
+    paths:
+      - 'oidc-adapter/**'
+      - '.github/workflows/test-oidc-adapter.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: oidc-adapter
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.25.11'
+          cache-dependency-path: oidc-adapter/go.sum
+      - name: Test OIDC protocol and role policy
+        run: go test -race -count=1 ./...
+      - name: Vet adapter
+        run: go vet ./...

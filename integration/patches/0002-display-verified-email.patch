@@ -1,0 +1,103 @@
+diff --git a/lib/web/ui/usercontext.go b/lib/web/ui/usercontext.go
+index 205df3cf022d1285347c47e4b1eeb215083d5035..769fd65095ba02b92b7218258440a66105ec3f06 100644
+--- a/lib/web/ui/usercontext.go
++++ b/lib/web/ui/usercontext.go
+@@ -57,6 +57,8 @@ type UserContext struct {
+ 	AuthType authType `json:"authType"`
+ 	// Name is this user name.
+ 	Name string `json:"userName"`
++	// DisplayName is presentation data, separate from the immutable username.
++	DisplayName string `json:"displayName,omitempty"`
+ 	// ACL contains user access control list.
+ 	ACL services.UserACL `json:"userAcl"`
+ 	// Cluster contains cluster detail for this user's context.
+@@ -116,6 +118,7 @@ func NewUserContext(user types.User, userRoles services.RoleSet, features proto.
+ 
+ 	return &UserContext{
+ 		Name:           user.GetName(),
++		DisplayName:    zitadelUserDisplayName(user),
+ 		ACL:            acl,
+ 		AuthType:       authType,
+ 		AccessStrategy: accessStrategy,
+diff --git a/web/packages/teleport/src/TopBar/TopBar.tsx b/web/packages/teleport/src/TopBar/TopBar.tsx
+index 57da33e9c1bf89ee02fdf958298be8eb775d8127..fab7a12ccebd4313f1449f80183abe9ae2bf5a95 100644
+--- a/web/packages/teleport/src/TopBar/TopBar.tsx
++++ b/web/packages/teleport/src/TopBar/TopBar.tsx
+@@ -64,7 +64,10 @@ export function TopBar({
+       {!feature?.logoOnlyTopbar && (
+         <Flex height="100%" alignItems="center">
+           <Notifications iconSize={iconSize} />
+-          <UserMenuNav username={ctx.storeUser.state.username} />
++          <UserMenuNav
++            username={ctx.storeUser.state.username}
++            displayName={ctx.storeUser.state.displayName}
++          />
+         </Flex>
+       )}
+     </TopBarContainer>
+diff --git a/web/packages/teleport/src/components/UserMenuNav/UserMenuNav.tsx b/web/packages/teleport/src/components/UserMenuNav/UserMenuNav.tsx
+index fd1ad8889e3c061f7efaabb34e4feb6d56601937..929432c737b7cd5c1973ae74b4605aa1ec8e8f73 100644
+--- a/web/packages/teleport/src/components/UserMenuNav/UserMenuNav.tsx
++++ b/web/packages/teleport/src/components/UserMenuNav/UserMenuNav.tsx
+@@ -44,6 +44,7 @@ import { useUser } from 'teleport/User/UserContext';
+ 
+ interface UserMenuNavProps {
+   username: string;
++  displayName?: string;
+ }
+ 
+ const USER_MENU_DROPDOWN_ID = 'tb-user-menu';
+@@ -117,7 +118,8 @@ const Arrow = styled.div<{ open?: boolean }>`
+   }
+ `;
+ 
+-export function UserMenuNav({ username }: UserMenuNavProps) {
++export function UserMenuNav({ username, displayName }: UserMenuNavProps) {
++  const label = displayName || username;
+   const [open, setOpen] = useState(false);
+   const theme = useTheme();
+ 
+@@ -138,7 +140,7 @@ export function UserMenuNav({ username }: UserMenuNavProps) {
+   };
+ 
+   const initial =
+-    username && username.length ? username.trim().charAt(0).toUpperCase() : '';
++    label && label.length ? label.trim().charAt(0).toUpperCase() : '';
+ 
+   const topMenuItems = features.filter(
+     feature => Boolean(feature.topMenuItem) && feature.category === undefined
+@@ -197,7 +199,7 @@ export function UserMenuNav({ username }: UserMenuNavProps) {
+       >
+         <StyledAvatar>{initial}</StyledAvatar>
+ 
+-        <Username>{username}</Username>
++        <Username>{label}</Username>
+         <Box ml={3}>
+           <DeviceTrustStatus iconOnly />
+         </Box>
+diff --git a/web/packages/teleport/src/services/user/makeUserContext.ts b/web/packages/teleport/src/services/user/makeUserContext.ts
+index a0b2f88faecb6d773fd7239e49dc14cf81b95624..3d882c961908ac3bcb997ef3cfc4cac45efbcb3a 100644
+--- a/web/packages/teleport/src/services/user/makeUserContext.ts
++++ b/web/packages/teleport/src/services/user/makeUserContext.ts
+@@ -36,6 +36,8 @@ export default function makeUserContext(json: any): UserContext {
+ 
+   return {
+     username,
++    displayName:
++      typeof json.displayName === 'string' ? json.displayName : undefined,
+     authType,
+     acl,
+     cluster,
+diff --git a/web/packages/teleport/src/services/user/types.ts b/web/packages/teleport/src/services/user/types.ts
+index e6329139a99498d890170f3521277a998cb1607e..e5479a4e31b37f0af5f47b75ac8be2f2dfc6fbde 100644
+--- a/web/packages/teleport/src/services/user/types.ts
++++ b/web/packages/teleport/src/services/user/types.ts
+@@ -38,6 +38,8 @@ export interface UserContext {
+   authType: AuthType;
+   acl: Acl;
+   username: string;
++  /** Human-readable label; never used as the authentication username. */
++  displayName?: string;
+   cluster: Cluster;
+   accessStrategy: AccessStrategy;
+   accessCapabilities: AccessCapabilities;

@@ -1,16 +1,16 @@
 name: Build Teleport and tsh clients
-run-name: Build and release Teleport ${{ inputs.tag }} and tsh clients
+run-name: Build and release Teleport ${{ inputs.tag }} with Zitadel and tsh clients
 
 on:
   workflow_dispatch:
     inputs:
       runner:
-        description: Runner labels as a JSON array
+        description: Linux build and release runner labels as a JSON array
         type: string
         required: true
-        default: '["STATIC"]'
+        default: '["ubuntu-24.04"]'
       tag:
-        description: Upstream Teleport release tag to build
+        description: Upstream release tag matching integration/upstream.commit
         type: string
         required: true
         default: v18.10.0
@@ -34,16 +34,23 @@ jobs:
   prepare:
     name: Resolve upstream tag and toolchain versions
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       commit: ${{ steps.versions.outputs.commit }}
       version: ${{ steps.versions.outputs.version }}
       go: ${{ steps.versions.outputs.go }}
-      node: ${{ steps.versions.outputs.node }}
       rust: ${{ steps.versions.outputs.rust }}
-      pnpm: ${{ steps.versions.outputs.pnpm }}
     env:
       TELEPORT_TAG: ${{ inputs.tag }}
     steps:
+      - name: Check out build repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test release validation
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/build -p 'test_*.py' -v
+
       - name: Validate Teleport release tag
         run: |
           python3 -c 'import os, re; tag = os.environ["TELEPORT_TAG"]; assert re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?", tag), "Expected a release tag such as v18.10.0"'
@@ -62,33 +69,26 @@ jobs:
         run: |
           teleport_commit="$(git rev-parse "refs/tags/${TELEPORT_TAG}^{commit}")"
           test "$(git rev-parse HEAD)" = "$teleport_commit"
+          supported_commit="$(cat "$GITHUB_WORKSPACE/integration/upstream.commit")"
+          if [[ "$teleport_commit" != "$supported_commit" ]]; then
+            echo 'The requested tag does not match integration/upstream.commit; update and verify the patch series before releasing it.' >&2
+            exit 1
+          fi
           echo "commit=$teleport_commit" >> "$GITHUB_OUTPUT"
           echo "version=${TELEPORT_TAG#v}" >> "$GITHUB_OUTPUT"
           echo "go=$(awk '$1 == "GOLANG_VERSION" { sub(/^go/, "", $3); print $3 }' build.assets/versions.mk)" >> "$GITHUB_OUTPUT"
-          echo "node=$(awk '$1 == "NODE_VERSION" { print $3 }' build.assets/versions.mk)" >> "$GITHUB_OUTPUT"
           echo "rust=$(awk '$1 == "channel" { gsub(/"/, "", $3); print $3 }' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-          echo "pnpm=$(python3 -c 'import json; print(json.load(open("package.json"))["packageManager"].split("+")[0].removeprefix("pnpm@"))')" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Linux full build and tests
+    name: Patched Linux build and integration tests
     needs: prepare
     runs-on: ${{ fromJSON(inputs.runner) }}
     timeout-minutes: 360
     env:
-      TELEPORT_TAG: ${{ inputs.tag }}
       TELEPORT_VERSION: ${{ needs.prepare.outputs.version }}
       TELEPORT_COMMIT: ${{ needs.prepare.outputs.commit }}
-      SOURCE_DIR: ${{ github.workspace }}/teleport-source
-      OUT_DIR: ${{ github.workspace }}/dist/linux-amd64
       BUILD_JOBS: ${{ inputs.build_jobs || '2' }}
-      CARGO_BUILD_JOBS: ${{ inputs.build_jobs || '2' }}
-      GOTOOLCHAIN: local
-      FIDO2: 'off'
-      COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
-      CC: gcc
-      CXX: g++
-      CLANG: /usr/bin/clang
-      LLVM_STRIP: /usr/bin/llvm-strip
+      BUILD_PLATFORM: linux/amd64
     defaults:
       run:
         shell: bash
@@ -104,97 +104,28 @@ jobs:
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
           df -h /
 
-      - name: Check out resolved Teleport source
-        uses: actions/checkout@v7.0.1
-        with:
-          repository: gravitational/teleport
-          ref: ${{ needs.prepare.outputs.commit }}
-          path: teleport-source
-          persist-credentials: false
-
-      - name: Verify native runner and source
-        working-directory: ${{ env.SOURCE_DIR }}
+      - name: Verify Linux amd64 runner and Docker access
         run: |
           test "$(uname -s)" = Linux
           test "$(uname -m)" = x86_64
-          test "$(git rev-parse HEAD)" = "$TELEPORT_COMMIT"
-          git update-ref "refs/tags/$TELEPORT_TAG" "$TELEPORT_COMMIT"
+          make --version
+          python3 --version
+          docker version
+          docker buildx version
+          case "$(docker info --format '{{.OSType}}/{{.Architecture}}')" in
+            linux/amd64|linux/x86_64) ;;
+            *) echo 'A Linux amd64 Docker engine is required.' >&2; exit 1 ;;
+          esac
 
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake clang libclang-dev llvm patch pkgconf \
-            libelf-dev libpam0g-dev libssl-dev zlib1g-dev libatomic1 \
-            ca-certificates curl file git gzip tar xz-utils python3 openssh-client
+      - name: Build patched binaries, verify integration, and export artifacts
+        run: make artifacts
 
-      - name: Set up Go
-        uses: actions/setup-go@v7.0.0
-        with:
-          go-version: ${{ needs.prepare.outputs.go }}
-          cache-dependency-path: teleport-source/go.sum
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7.1.0
-        with:
-          node-version: ${{ needs.prepare.outputs.node }}
-          package-manager-cache: false
-
-      - name: Install pinned Rust and pnpm
-        env:
-          CARGO_HOME: ${{ runner.temp }}/teleport-cargo
-          RUSTUP_HOME: ${{ runner.temp }}/teleport-rustup
-          RUST_VERSION: ${{ needs.prepare.outputs.rust }}
-          PNPM_VERSION: ${{ needs.prepare.outputs.pnpm }}
-        run: |
-          echo "CARGO_HOME=$CARGO_HOME" >> "$GITHUB_ENV"
-          echo "RUSTUP_HOME=$RUSTUP_HOME" >> "$GITHUB_ENV"
-          curl --fail --location --retry 3 \
-            https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init \
-            --output "$RUNNER_TEMP/rustup-init"
-          chmod +x "$RUNNER_TEMP/rustup-init"
-          "$RUNNER_TEMP/rustup-init" -y --no-modify-path --profile minimal \
-            --default-toolchain "$RUST_VERSION" --target wasm32-unknown-unknown
-          npm install --global --prefix "$RUNNER_TEMP/teleport-pnpm" "pnpm@$PNPM_VERSION"
-          echo "RUSTUP_TOOLCHAIN=$RUST_VERSION" >> "$GITHUB_ENV"
-          echo "PNPM_REAL_BIN=$RUNNER_TEMP/teleport-pnpm/bin/pnpm" >> "$GITHUB_ENV"
-          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
-          chmod +x build/bin/pnpm
-          echo "$GITHUB_WORKSPACE/build/bin" >> "$GITHUB_PATH"
-
-      - name: Build pinned static libbpf
-        working-directory: ${{ env.SOURCE_DIR }}
-        run: |
-          libbpf_version="$(awk '$1 == "LIBBPF_VERSION" { print $3 }' build.assets/versions.mk)"
-          libbpf_source="$RUNNER_TEMP/teleport-libbpf-source"
-          libbpf_install="$RUNNER_TEMP/teleport-libbpf-install"
-          mkdir -p "$libbpf_source" "$libbpf_install"
-          curl --fail --location --retry 3 \
-            "https://github.com/libbpf/libbpf/archive/refs/tags/v${libbpf_version}.tar.gz" \
-            | tar -xz --strip-components=1 -C "$libbpf_source"
-          make -C "$libbpf_source/src" BUILD_STATIC_ONLY=y EXTRA_CFLAGS=-fPIC \
-            LIBDIR=/usr/lib64 DESTDIR="$libbpf_install" install install_uapi_headers
-          sudo mkdir -p "/usr/libbpf-${libbpf_version}"
-          sudo cp -a "$libbpf_install/usr/." "/usr/libbpf-${libbpf_version}/"
-
-      - name: Build WebAssembly tools
-        working-directory: ${{ env.SOURCE_DIR }}
-        run: make --no-print-directory ensure-wasm-deps FIDO2=off
-
-      - name: Build all binaries and embedded Web UI
-        run: bash build/build.sh
-
-      - name: Run cluster smoke test and upstream tests
-        run: bash build/test.sh
-
-      - name: Upload upstream test reports
+      - name: Upload exported test reports
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
           name: teleport-linux-amd64-test-reports
-          path: |
-            teleport-source/test-logs/unit-tests.xml
-            teleport-source/test-logs/unit-tests.json
+          path: dist/linux-amd64/test-results/
           if-no-files-found: ignore
           retention-days: 14
 
@@ -204,17 +135,7 @@ jobs:
           cd dist/linux-amd64
           test -f test-results/PASSED
           sha256sum --check SHA256SUMS
-          version="$(python3 -c '
-          import json
-          import os
-          with open("manifest.json") as stream:
-              manifest = json.load(stream)
-          assert manifest["os"] == "linux" and manifest["architecture"] == "amd64"
-          version = manifest["teleport_version"]
-          assert version == os.environ["TELEPORT_VERSION"]
-          assert manifest["source_commit"] == os.environ["TELEPORT_COMMIT"]
-          print(version)
-          ')"
+          version="$(python3 "$GITHUB_WORKSPACE/build/verify-release.py" "$PWD")"
           archive="teleport-${version}-linux-amd64.tar.gz"
           tar -czf "../${archive}" bin LICENSE SHA256SUMS manifest.json test-results
           cd ..
@@ -395,21 +316,24 @@ jobs:
             (cd dist && sha256sum --check "$asset.sha256")
             release_assets+=("dist/$asset" "dist/$asset.sha256")
           done
+          notes_file="$RUNNER_TEMP/teleport-release-notes.md"
+          python3 - <<'PY' > "$notes_file"
+          import os
+          print(f"Teleport {os.environ['TELEPORT_TAG']} built from pinned Community source with the custom Zitadel OIDC integration for linux/amd64.")
+          print(f"\nUpstream source commit: `{os.environ['TELEPORT_COMMIT']}`.")
+          print(f"Build repository commit: `{os.environ['GITHUB_SHA']}`.")
+          print("\nIncludes all six binaries, embedded Web UI with Zitadel connector management and configurable account labels, LICENSE, manifest with integration source hashes, binary checksums, and passing upstream test reports. The shared build also runs adapter, Auth/Proxy bridge, and account-label tests. FIDO2 is disabled; PAM, BPF, and Rust Desktop support are included.")
+          print("\nZitadel support is enabled by default in the Linux server. Configure a native Zitadel OIDC connector to use it.")
+          print("\nSeparate tsh archives are included for Windows amd64 and macOS arm64/amd64. Clients are built natively with CGO, Rust RDP decoding, and PIV; macOS includes Touch ID. FIDO2 remains disabled. Each client passes executable header/build metadata checks and native version/help checks. Distribution signing and notarization are not configured.")
+          print("\nLinux binaries are compiled in Debian Bookworm and require compatible runtime libraries. Verify each archive checksum before extracting.")
+          PY
+          release_title="Teleport $TELEPORT_TAG with Zitadel and tsh clients"
           if gh release view "$TELEPORT_TAG" --json tagName >/dev/null 2>&1; then
             gh release upload "$TELEPORT_TAG" \
               "${release_assets[@]}" --clobber
+            gh release edit "$TELEPORT_TAG" --title "$release_title" --notes-file "$notes_file"
           else
-            notes_file="$RUNNER_TEMP/teleport-release-notes.md"
-            python3 - <<'PY' > "$notes_file"
-          import os
-          print(f"Teleport {os.environ['TELEPORT_TAG']} built from Community source for linux/amd64.")
-          print(f"\nUpstream source commit: `{os.environ['TELEPORT_COMMIT']}`.")
-          print(f"Build repository commit: `{os.environ['GITHUB_SHA']}`.")
-          print("\nIncludes all six binaries, embedded Web UI, LICENSE, manifest, binary checksums, and passing test reports. FIDO2 is disabled; PAM, BPF, and Rust Desktop support are included.")
-          print("\nSeparate tsh archives are included for Windows amd64 and macOS arm64/amd64. Clients are built natively with CGO, Rust RDP decoding, and PIV; macOS includes Touch ID. FIDO2 remains disabled. Each client passes executable header/build metadata checks and native version/help checks. Distribution signing and notarization are not configured.")
-          print("\nThe Linux binaries use the build runner's system libraries. Verify each archive checksum before extracting.")
-          PY
-            release_flags=(--target "$GITHUB_SHA" --title "Teleport $TELEPORT_TAG and tsh clients" --notes-file "$notes_file")
+            release_flags=(--target "$GITHUB_SHA" --title "$release_title" --notes-file "$notes_file")
             if [[ "${TELEPORT_VERSION%%+*}" == *-* ]]; then
               release_flags+=(--prerelease)
             fi

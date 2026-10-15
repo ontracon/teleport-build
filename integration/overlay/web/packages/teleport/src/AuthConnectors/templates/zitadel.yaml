@@ -1,0 +1,24 @@
+kind: oidc
+version: v3
+metadata:
+  name: new_zitadel_connector
+  labels:
+    zitadel/project-id: "<project-id>"
+    # Organization receiving the user's role grant, which can differ from the project owner.
+    zitadel/organization-id: "<role-grant-organization-id>"
+    zitadel/transaction-ttl: "5m"
+    # Display only: email (default), preferred_username, name, nickname, or a custom claim.
+    zitadel/display-name-claim: "email"
+spec:
+  provider: zitadel
+  display: Zitadel
+  issuer_url: "https://<zitadel-host>"
+  client_id: "<client-id>"
+  # For existing connectors, keep <existing-secret> to preserve the stored secret.
+  client_secret: "<client-secret>"
+  redirect_url: "https://<cluster-url>/v1/webapi/oidc/callback"
+  pkce_mode: enabled
+  claims_to_roles:
+    - claim: "urn:zitadel:iam:org:project:<project-id>:roles"
+      value: "<zitadel-role-key>"
+      roles: ["access"]

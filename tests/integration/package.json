@@ -1,0 +1,12 @@
+{
+  "name": "teleport-zitadel-local-lab",
+  "private": true,
+  "scripts": {
+    "test": "node browser-smoke.cjs",
+    "test:connectors": "node connector-smoke.cjs",
+    "test:real": "node real-browser-check.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.61.1"
+  }
+}

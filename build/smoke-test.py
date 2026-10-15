@@ -43,8 +43,7 @@ def fetch(url, javascript=False):
                                   for kind in ('javascript', 'ecmascript')):
             raise RuntimeError(f'Web UI asset has the wrong content type: {url}')
         if fields.get('content-encoding') == 'br':
-            # AlmaLinux's curl-minimal has no Brotli decoder. Node is already
-            # part of the builder and provides one without extra dependencies.
+            # Decode the embedded assets independently of curl's Brotli support.
             body = subprocess.check_output([
                 'node', '-e',
                 "process.stdout.write(require('node:zlib').brotliDecompressSync(require('node:fs').readFileSync(0)))",

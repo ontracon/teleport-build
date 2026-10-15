@@ -1,0 +1,63 @@
+name: teleport-zitadel-lab
+
+x-lab: &lab
+  image: teleport-zitadel-lab:${TELEPORT_VERSION:-18.10.0}
+  platform: ${BUILD_PLATFORM:-linux/amd64}
+  pull_policy: never
+
+services:
+  init:
+    <<: *lab
+    entrypoint: ["python3", "/lab/setup.py", "/lab/generated"]
+    command: []
+    volumes:
+      - ./generated:/lab/generated
+      - ./setup.py:/lab/setup.py:ro
+
+  mock-idp:
+    <<: *lab
+    entrypoint: ["/usr/local/bin/mock-idp"]
+    command: []
+    environment:
+      MOCK_ISSUER: https://localhost:9443
+      MOCK_SECRET_FILE: /lab/generated/client-secret
+      MOCK_CERT_FILE: /lab/generated/idp.pem
+      MOCK_KEY_FILE: /lab/generated/idp.key
+    ports:
+      - "127.0.0.1:9443:9443"
+      - "127.0.0.1:3080:3080"
+    volumes:
+      - ./generated:/lab/generated:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--cacert", "/lab/generated/ca.pem", "https://localhost:9443/.well-known/openid-configuration"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  teleport:
+    <<: *lab
+    # Share loopback so the public issuer URL works in the browser and Auth.
+    network_mode: service:mock-idp
+    command: ["start", "--config=/lab/generated/teleport.yaml", "--bootstrap=/lab/generated/bootstrap.yaml"]
+    environment:
+      TELEPORT_ZITADEL_CONFIG: /lab/generated/adapter.json
+      TELEPORT_ZITADEL_SECRET_FILE: /lab/generated/client-secret
+      TELEPORT_ZITADEL_CONNECTOR_ID: zitadel
+    volumes:
+      - ./generated:/lab/generated:ro
+      - teleport-data:/var/lib/teleport
+      - ../tests/integration/cli-smoke.py:/lab/cli-smoke.py:ro
+    depends_on:
+      mock-idp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--cacert", "/lab/generated/ca.pem", "https://localhost:3080/webapi/ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+volumes:
+  teleport-data:

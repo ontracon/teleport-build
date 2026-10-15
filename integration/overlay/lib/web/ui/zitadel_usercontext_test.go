@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+package ui
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/gravitational/teleport/api/client/proto"
+	"github.com/gravitational/teleport/api/constants"
+	"github.com/gravitational/teleport/api/types"
+	"github.com/stretchr/testify/require"
+)
+
+func TestZitadelDisplayNamePreservesIdentity(t *testing.T) {
+	user := &types.UserV2{
+		Metadata: types.Metadata{Name: "zitadel-stable-identity"},
+		Spec: types.UserSpecV2{
+			OIDCIdentities: []types.ExternalIdentity{{ConnectorID: "zitadel", UserID: "subject", Username: "person@example.com"}},
+			CreatedBy:      types.CreatedBy{Connector: &types.ConnectorRef{Type: constants.OIDC, ID: "zitadel", Identity: "subject"}},
+		},
+	}
+	user.SetTraits(map[string][]string{"email": {"verified@example.com"}})
+	for _, label := range []string{"person@example.com", "updated@example.com", "preferred-user", "Zoë Example", "Nick"} {
+		user.Spec.OIDCIdentities[0].Username = label
+		context, err := NewUserContext(user, nil, proto.Features{}, false, false)
+		require.NoError(t, err)
+		require.Equal(t, "zitadel-stable-identity", context.Name)
+		require.Equal(t, label, context.DisplayName)
+		require.Equal(t, []string{"verified@example.com"}, user.GetTraits()["email"])
+		data, err := json.Marshal(context)
+		require.NoError(t, err)
+		var fields map[string]any
+		require.NoError(t, json.Unmarshal(data, &fields))
+		require.Equal(t, "zitadel-stable-identity", fields["userName"])
+		require.Equal(t, label, fields["displayName"])
+	}
+}
+
+func TestZitadelDisplayNameRequiresMatchingIdentity(t *testing.T) {
+	for _, name := range []string{"local user", "other connector", "other subject", "missing ownership", "missing subject", "multiple identities"} {
+		t.Run(name, func(t *testing.T) {
+			user := &types.UserV2{
+				Metadata: types.Metadata{Name: "zitadel-stable-identity"},
+				Spec: types.UserSpecV2{
+					Traits:         map[string][]string{"email": {"untrusted@example.com"}},
+					OIDCIdentities: []types.ExternalIdentity{{ConnectorID: "zitadel", UserID: "subject", Username: "person@example.com"}},
+					CreatedBy:      types.CreatedBy{Connector: &types.ConnectorRef{Type: constants.OIDC, ID: "zitadel", Identity: "subject"}},
+				},
+			}
+			switch name {
+			case "local user":
+				user.Metadata.Name = "local"
+			case "other connector":
+				user.Spec.CreatedBy.Connector.ID = "other"
+			case "other subject":
+				user.Spec.CreatedBy.Connector.Identity = "other"
+			case "missing ownership":
+				user.Spec.CreatedBy.Connector = nil
+			case "missing subject":
+				user.Spec.OIDCIdentities[0].UserID = ""
+			case "multiple identities":
+				user.Spec.OIDCIdentities = append(user.Spec.OIDCIdentities, user.Spec.OIDCIdentities[0])
+			}
+			context, err := NewUserContext(user, nil, proto.Features{}, false, false)
+			require.NoError(t, err)
+			require.Equal(t, user.GetName(), context.Name)
+			require.Empty(t, context.DisplayName)
+		})
+	}
+}

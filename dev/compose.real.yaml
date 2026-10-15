@@ -1,0 +1,41 @@
+# Real-IdP lab: independent state and credentials; no mock provider.
+name: teleport-zitadel-real-lab
+
+x-real-lab: &real-lab
+  image: teleport-zitadel-lab:${TELEPORT_VERSION:-18.10.0}
+  platform: ${BUILD_PLATFORM:-linux/amd64}
+  pull_policy: never
+
+services:
+  init:
+    <<: *real-lab
+    entrypoint: ["python3", "/lab/setup.py", "/lab/generated"]
+    command: []
+    volumes:
+      - ./generated-real:/lab/generated
+      - ./setup.py:/lab/setup.py:ro
+
+  teleport:
+    <<: *real-lab
+    command: ["start", "--config=/lab/generated/teleport.yaml", "--bootstrap=/lab/generated/bootstrap.yaml"]
+    environment:
+      SSL_CERT_FILE: /lab/generated/trust.pem
+      TELEPORT_ZITADEL_CONFIG: /lab/generated/adapter.json
+      TELEPORT_ZITADEL_SECRET_FILE: /lab/generated/client-secret
+      TELEPORT_ZITADEL_CONNECTOR_ID: zitadel
+    ports:
+      - "127.0.0.1:3080:3080"
+    volumes:
+      - ./generated-real:/lab/generated:ro
+      - teleport-data:/var/lib/teleport
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--cacert", "/lab/generated/ca.pem", "https://localhost:3080/webapi/ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+volumes:
+  teleport-data:

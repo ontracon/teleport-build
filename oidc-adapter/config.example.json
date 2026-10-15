@@ -1,0 +1,13 @@
+{
+  "issuer_url": "https://zitadel.example.com",
+  "client_id": "REPLACE_WITH_CLIENT_ID",
+  "redirect_url": "https://teleport.example.com/v1/webapi/oidc/callback",
+  "project_id": "123456789",
+  "organization_id": "987654321",
+  "display_name_claim": "email",
+  "transaction_ttl": "5m",
+  "role_mappings": {
+    "platform-operator": ["access"],
+    "platform-admin": ["access", "editor"]
+  }
+}

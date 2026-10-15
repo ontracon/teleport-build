@@ -66,6 +66,17 @@ def main():
         }.items()},
         'binaries': metadata,
     }
+    integration_dir = os.environ.get('TELEPORT_INTEGRATION_DIR')
+    if integration_dir:
+        integration = Path(integration_dir)
+        files = {}
+        for file in sorted(integration.rglob('*')):
+            if file.is_file():
+                files['integration/' + str(file.relative_to(integration))] = hashlib.sha256(file.read_bytes()).hexdigest()
+        for file in sorted(Path('lib/zitadeloidc').glob('*')):
+            if file.is_file():
+                files[str(file)] = hashlib.sha256(file.read_bytes()).hexdigest()
+        manifest['integration'] = {'provider': 'zitadel', 'files': files}
     (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     (root / 'SHA256SUMS').write_text('\n'.join(checksums) + '\n')
     print(json.dumps(manifest, indent=2))
