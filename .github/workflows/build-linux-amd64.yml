@@ -98,11 +98,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Free space for native toolchains and compilation
+      - name: Free unused host toolchains for the Docker build
         if: runner.environment == 'github-hosted'
         run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          # Linux compilation and tests use the pinned container toolchains.
+          # Actions' embedded Node runtime and system Python remain available.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /opt/hostedtoolcache /usr/share/swift /usr/local/share/powershell
+          sudo apt-get clean
           df -h /
+          df -i /
 
       - name: Verify Linux amd64 runner and Docker access
         run: |
@@ -120,12 +125,25 @@ jobs:
       - name: Build patched binaries, verify integration, and export artifacts
         run: make artifacts
 
+      - name: Report Linux build storage
+        if: always()
+        run: |
+          mkdir -p tests/build/test-results
+          {
+            df -h / || true
+            df -i / || true
+            docker system df || true
+            docker buildx du || true
+          } 2>&1 | tee tests/build/test-results/host-disk-usage.txt
+
       - name: Upload exported test reports
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
           name: teleport-linux-amd64-test-reports
-          path: dist/linux-amd64/test-results/
+          path: |
+            dist/linux-amd64/test-results/
+            tests/build/test-results/host-disk-usage.txt
           if-no-files-found: ignore
           retention-days: 14
 

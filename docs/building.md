@@ -96,6 +96,20 @@ BUILD_JOBS=4 make build
 BUILD_PLATFORM=linux/arm64 make build
 ```
 
+Verification runs Go test packages serially with race detection enabled and
+omits DWARF from temporary test binaries. All Go suites use the upstream
+test target and its native feature tags, so upstream and integration tests
+reuse the same race-instrumented dependencies. Runtime stack traces remain
+available. This reduces concurrent linker output and duplicate cache entries.
+
+The compiler caches, source layers, native dependencies, and temporary linker
+files can consume far more disk than the exported image or archive. A host
+`df` reading before the build does not describe free space at peak usage.
+Verification logs filesystem space and inodes for its source, temporary,
+Go-cache, and output paths before each suite and on exit in
+`test-results/disk-usage.log`. These details are also printed in the build log,
+so they remain visible when a failed stage prevents artifact export.
+
 Each requested platform is compiled natively in its build environment; an
 arm64 host can emulate the amd64 build. Platform support must be verified on
 the requested target rather than inferred from a successful amd64 build.
@@ -113,6 +127,10 @@ make build-test
 
 This optional debugging image retains the toolchain. Use the runtime or lab
 target for running services.
+
+Each Go suite exports JUnit and JSON reports under
+`test-results/<suite>/`. The `PASSED` marker is written only after every Go
+suite, the smoke check, and the Web UI tests succeed.
 
 ```sh
 make artifacts
@@ -155,6 +173,11 @@ if a release tag already exists, publication fails rather than replacing it.
 The Linux build and release jobs default to GitHub-hosted `ubuntu-24.04`.
 The `runner` dispatch input accepts a JSON array of labels to select another
 runner, such as `["self-hosted", "linux", "x64"]`.
+
+The hosted Linux build removes preinstalled host toolchains that are unused
+by container compilation, including the hosted tool cache. This cleanup runs
+only on GitHub-hosted runners. After the build, filesystem and Docker cache
+usage are uploaded with the test reports, including when verification fails.
 
 The Linux runner needs Make, Python 3, Docker access, and Buildx Bake with a
 Linux amd64 Docker engine. Compilers and native development packages are
