@@ -168,7 +168,7 @@ Teleport version.
 Each release tag targets the build repository commit used by that run, and
 the generated notes record the upstream commit, build repository commit, and
 release build number. Existing releases, tags, notes, and assets are preserved;
-if a release tag already exists, publication fails rather than replacing it.
+if a numbered release already exists, publication fails rather than replacing it.
 
 The Linux build and release jobs default to GitHub-hosted `ubuntu-24.04`.
 The `runner` dispatch input accepts a JSON array of labels to select another
