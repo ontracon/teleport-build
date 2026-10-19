@@ -22,6 +22,7 @@ const (
 	ZitadelTTLLabel          = "zitadel/transaction-ttl"
 	ZitadelAMRLabel          = "zitadel/required-amr"
 	ZitadelDisplayNameLabel  = "zitadel/display-name-claim"
+	ZitadelTraitClaimsLabel  = "zitadel/trait-claims"
 )
 
 type zitadelClientEntry struct {
@@ -37,9 +38,6 @@ func ZitadelConfigFromConnector(connector types.OIDCConnector) (zitadel.Config, 
 	if !ok || c.GetProvider() != "zitadel" {
 		return zitadel.Config{}, trace.BadParameter("provider must be zitadel")
 	}
-	if c.Spec.UsernameClaim != "" {
-		return zitadel.Config{}, trace.BadParameter("username_claim changes account identity and is unsupported; use zitadel/display-name-claim for the display label")
-	}
 	if c.Spec.AllowUnverifiedEmail || c.Spec.ACR != "" || c.Spec.MFASettings != nil ||
 		c.Spec.GoogleServiceAccount != "" || c.Spec.GoogleServiceAccountURI != "" || c.Spec.GoogleAdminEmail != "" ||
 		c.Spec.EntraIdGroupsProvider != nil || len(c.Spec.Scope) != 0 ||
@@ -52,7 +50,7 @@ func ZitadelConfigFromConnector(connector types.OIDCConnector) (zitadel.Config, 
 	}
 	labels := c.Metadata.Labels
 	for key := range labels {
-		if strings.HasPrefix(key, "zitadel/") && !slices.Contains([]string{ZitadelProjectLabel, ZitadelOrganizationLabel, ZitadelTTLLabel, ZitadelAMRLabel, ZitadelDisplayNameLabel}, key) {
+		if strings.HasPrefix(key, "zitadel/") && !slices.Contains([]string{ZitadelProjectLabel, ZitadelOrganizationLabel, ZitadelTTLLabel, ZitadelAMRLabel, ZitadelDisplayNameLabel, ZitadelTraitClaimsLabel}, key) {
 			return zitadel.Config{}, trace.BadParameter("unknown Zitadel configuration label")
 		}
 	}
@@ -60,6 +58,7 @@ func ZitadelConfigFromConnector(connector types.OIDCConnector) (zitadel.Config, 
 		IssuerURL: c.GetIssuerURL(), ClientID: c.GetClientID(), ClientSecret: c.GetClientSecret(), RedirectURL: c.GetRedirectURLs()[0],
 		ProjectID: labels[ZitadelProjectLabel], OrganizationID: labels[ZitadelOrganizationLabel], RoleMappings: make(map[string][]string),
 		DisplayNameClaim: labels[ZitadelDisplayNameLabel],
+		UsernameClaim:    c.GetUsernameClaim(),
 	}
 	claim := "urn:zitadel:iam:org:project:" + cfg.ProjectID + ":roles"
 	for _, mapping := range c.GetClaimsToRoles() {
@@ -81,6 +80,11 @@ func ZitadelConfigFromConnector(connector types.OIDCConnector) (zitadel.Config, 
 	if value := labels[ZitadelAMRLabel]; value != "" {
 		if err := json.Unmarshal([]byte(value), &cfg.RequiredAMR); err != nil {
 			return zitadel.Config{}, trace.BadParameter("required AMR must be a JSON array of strings")
+		}
+	}
+	if value := labels[ZitadelTraitClaimsLabel]; value != "" {
+		if err := json.Unmarshal([]byte(value), &cfg.TraitClaims); err != nil || cfg.TraitClaims == nil {
+			return zitadel.Config{}, trace.BadParameter("trait claims must be a JSON array of claim names")
 		}
 	}
 	cfg.MaxAuthenticationAge, _ = c.GetMaxAge()
@@ -153,6 +157,7 @@ func (s *zitadelService) migrateLegacyConnector(ctx context.Context, id string, 
 		return trace.BadParameter("unsupported legacy Zitadel connector version")
 	}
 	c.Spec.Provider = "zitadel"
+	c.Spec.UsernameClaim = cfg.UsernameClaim
 	c.Metadata.Labels = maps.Clone(c.Metadata.Labels)
 	if c.Metadata.Labels == nil {
 		c.Metadata.Labels = make(map[string]string)
@@ -161,6 +166,10 @@ func (s *zitadelService) migrateLegacyConnector(ctx context.Context, id string, 
 	c.Metadata.Labels[ZitadelOrganizationLabel] = cfg.OrganizationID
 	c.Metadata.Labels[ZitadelTTLLabel] = cfg.TransactionTTL.String()
 	c.Metadata.Labels[ZitadelDisplayNameLabel] = cfg.DisplayNameClaim
+	if len(cfg.TraitClaims) > 0 {
+		value, _ := json.Marshal(cfg.TraitClaims)
+		c.Metadata.Labels[ZitadelTraitClaimsLabel] = string(value)
+	}
 	if len(cfg.RequiredAMR) > 0 {
 		value, _ := json.Marshal(cfg.RequiredAMR)
 		c.Metadata.Labels[ZitadelAMRLabel] = string(value)

@@ -9,6 +9,8 @@ metadata:
     zitadel/transaction-ttl: "5m"
     # Display only: email (default), preferred_username, name, nickname, or a custom claim.
     zitadel/display-name-claim: "email"
+    # Optional additional traits; profile traits are included automatically.
+    # zitadel/trait-claims: '["groups", "amr", "email_verified"]'
 spec:
   provider: zitadel
   display: Zitadel
@@ -18,6 +20,8 @@ spec:
   client_secret: "<client-secret>"
   redirect_url: "https://<cluster-url>/v1/webapi/oidc/callback"
   pkce_mode: enabled
+  # Optional actual account name; omit to keep the default subject-based username.
+  # username_claim: preferred_username
   claims_to_roles:
     - claim: "urn:zitadel:iam:org:project:<project-id>:roles"
       value: "<zitadel-role-key>"

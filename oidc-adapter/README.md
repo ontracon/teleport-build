@@ -26,18 +26,31 @@ under `cmd/mock-idp/` supplies the local browser/CLI fixture.
    state, nonce, and PKCE verifier server-side.
 3. Redirect the browser to `Authorization.URL` and pass its callback parameters
    to `Complete`. Consumption is atomic and precedes exchange, including failures.
-4. Use the returned verified issuer/subject, email, display label, mapped roles,
-   and original host request to perform host authorization and issue
-   credentials. Provider tokens are never returned.
+4. Use the returned verified issuer/subject, optional account name, email,
+   display label, traits, mapped roles, and original host request to perform host
+   authorization and issue credentials. Provider tokens are never returned.
 
 The host must preserve issuer/subject identity. `display_name_claim` selects
 a top-level string claim for presentation, defaulting to `email`. Missing or
 unsuitable labels fall back to verified email. `Identity.Email` remains the
 verified email independently of `Identity.DisplayName`; neither is a stable
-account identifier.
+account identifier. Optional `username_claim` supplies `Identity.Username`
+for actual account naming. Unset leaves that field empty for host-controlled
+naming; a configured claim must yield a valid account name or login fails.
+The host must retain issuer/subject binding and reject account collisions,
+including when another identity presents the same username.
 UserInfo can fill missing fields only for the verified subject and cannot
 override signed claims. OAuth/claim failures expose bounded, safe diagnostics
 through `AuthenticationError`.
+
+`Identity.Traits` contains verified `email`, `iss`, and `sub`, available profile
+fields, and optional `trait_claims` from trusted configuration. Strings and
+string lists are supported; scalar booleans/numbers have explicit string
+representations. Unsupported or oversized claims are omitted as a whole.
+Token/session metadata can only come from the ID token; other missing claims
+may be filled by subject-matched UserInfo. Traits are rebuilt for every login.
+See [user traits](../docs/configuration.md#user-traits) for defaults, limits,
+reserved names, and optional lookup behavior.
 
 `config.example.json` is the standalone and lab seed shape. `ReadConfig`
 requires the secret separately and rejects embedded secrets, unknown fields,

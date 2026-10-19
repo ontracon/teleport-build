@@ -47,6 +47,8 @@ def main():
         'issuer_url': 'https://localhost:9443', 'client_id': 'teleport-lab',
         'redirect_url': 'https://localhost:3080/v1/webapi/oidc/callback',
         'project_id': '123', 'organization_id': '456', 'transaction_ttl': '5m',
+        'username_claim': 'preferred_username',
+        'trait_claims': ['groups', 'amr', 'email_verified'],
         'role_mappings': {'operator': ['lab-access'], 'administrator': ['lab-access', 'editor']},
     }
     # Preserve explicitly edited real-IdP configuration across lab restarts.
@@ -88,11 +90,15 @@ ssh_service:
         'zitadel/project-id': config['project_id'],
         'zitadel/organization-id': config['organization_id'],
         'zitadel/transaction-ttl': config.get('transaction_ttl', '5m'),
+        'zitadel/display-name-claim': config.get('display_name_claim', 'email'),
     }
     if config.get('required_amr'):
         labels['zitadel/required-amr'] = json.dumps(config['required_amr'])
+    if config.get('trait_claims'):
+        labels['zitadel/trait-claims'] = json.dumps(config['trait_claims'])
     label_yaml = '\n'.join('    ' + key + ': ' + json.dumps(value) for key, value in labels.items())
     max_age = '\n  max_age: ' + json.dumps(config['max_authentication_age']) if config.get('max_authentication_age') else ''
+    username_claim = '\n  username_claim: ' + json.dumps(config['username_claim']) if config.get('username_claim') else ''
     write(root / 'bootstrap.yaml', '''kind: role
 version: v7
 metadata:
@@ -118,7 +124,7 @@ spec:
   client_id: ''' + json.dumps(config['client_id']) + '''
   client_secret: ''' + json.dumps(secret) + '''
   redirect_url: ''' + json.dumps(config['redirect_url']) + '''
-  pkce_mode: enabled''' + max_age + '''
+  pkce_mode: enabled''' + max_age + username_claim + '''
   claims_to_roles:
 ''' + mappings + '''
 ---

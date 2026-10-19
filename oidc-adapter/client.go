@@ -278,14 +278,17 @@ func (c *Client) Complete(ctx context.Context, query url.Values) (result *Authen
 	// Zitadel can deliver email and project grants through UserInfo instead of
 	// the ID token. Only fill missing claims; never overwrite signed claims.
 	_, hasRoles := claims[roleClaim]
-	userInfoRequired := !hasRoles || claims["email"] == nil || claims["email_verified"] == nil
+	_, hasUsername := claims[c.cfg.UsernameClaim]
+	userInfoRequired := !hasRoles || claims["email"] == nil || claims["email_verified"] == nil ||
+		(c.cfg.UsernameClaim != "" && !hasUsername)
 	_, hasDisplayName := claims[c.cfg.DisplayNameClaim]
-	if userInfoRequired || !hasDisplayName {
+	traitNames := traitClaimNames(c.cfg)
+	if userInfoRequired || !hasDisplayName || missingTraitClaims(claims, traitNames) {
 		stage, reason = "userinfo", "provider_request_failed"
 		info, err := c.provider.UserInfo(providerCtx, oauth2.StaticTokenSource(token))
 		if err != nil {
-			// A display-only lookup may fail without blocking an otherwise
-			// complete login. The verified email remains the display fallback.
+			// Optional display/profile lookups may fail without blocking an
+			// otherwise complete login. Missing traits remain absent.
 			if userInfoRequired {
 				return nil, providerError(ctx)
 			}
@@ -316,7 +319,19 @@ func (c *Client) Complete(ctx context.Context, query url.Values) (result *Authen
 					return nil, ErrDenied
 				}
 			}
-			for _, key := range []string{roleClaim, "email", "email_verified", c.cfg.DisplayNameClaim} {
+			keys := []string{roleClaim, "email", "email_verified", c.cfg.DisplayNameClaim}
+			if c.cfg.UsernameClaim != "" {
+				keys = append(keys, c.cfg.UsernameClaim)
+			}
+			for _, name := range traitNames {
+				if !idTokenTrait(name) {
+					keys = append(keys, name)
+				}
+			}
+			for _, key := range keys {
+				if idTokenTrait(key) {
+					continue
+				}
 				if _, exists := claims[key]; !exists {
 					claims[key] = additional[key]
 				}
@@ -334,6 +349,14 @@ func (c *Client) Complete(ctx context.Context, query url.Values) (result *Authen
 	}
 	if email == "" || !emailVerified {
 		return nil, ErrDenied
+	}
+	var username string
+	if c.cfg.UsernameClaim != "" {
+		stage, reason = "username", "username_claim_missing_or_invalid"
+		username, err = usernameClaim(claims[c.cfg.UsernameClaim])
+		if err != nil {
+			return nil, err
+		}
 	}
 	stage, reason = "role_mapping", "no_matching_role_for_configured_organization"
 	if len(claims[roleClaim]) == 0 {
@@ -364,8 +387,9 @@ func (c *Client) Complete(ctx context.Context, query url.Values) (result *Authen
 		return nil, err
 	}
 	return &Authentication{
-		Identity: Identity{Issuer: idToken.Issuer, Subject: idToken.Subject, Email: email,
-			DisplayName: displayName(claims[c.cfg.DisplayNameClaim], email), Roles: roles},
+		Identity: Identity{Issuer: idToken.Issuer, Subject: idToken.Subject, Email: email, Username: username,
+			DisplayName: displayName(claims[c.cfg.DisplayNameClaim], email), Roles: roles,
+			Traits: identityTraits(claims, traitNames, idToken.Issuer, idToken.Subject, email)},
 		Request: slices.Clone(tx.Request), AuthenticatedAt: c.now(), TokenExpiry: idToken.Expiry,
 	}, nil
 }

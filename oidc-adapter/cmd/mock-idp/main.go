@@ -155,6 +155,7 @@ func (p *provider) claims(item flow) map[string]any {
 		"iat": now, "exp": now + 300, "auth_time": now, "nonce": item.Params.Get("nonce"), "amr": []string{"pwd", "mfa"},
 		"email": item.User + "@lab.invalid", "email_verified": item.User != "unverified",
 		"preferred_username": item.User, "name": "Lab " + item.User, "nickname": item.User,
+		"groups":                                []string{"123:" + role},
 		"urn:zitadel:iam:org:project:123:roles": map[string]map[string]string{role: {org: "lab.invalid"}}}
 }
 
@@ -243,7 +244,10 @@ func main() {
 			w.WriteHeader(401)
 			return
 		}
-		send(w, 200, p.claims(item))
+		claims := p.claims(item)
+		// Exercise missing-profile fallback separately from signed ID claims.
+		claims["given_name"], claims["family_name"], claims["locale"] = "Lab", item.User, "en"
+		send(w, 200, claims)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "Local mock IdP. Start login at https://localhost:3080.\n")

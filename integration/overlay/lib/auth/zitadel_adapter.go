@@ -218,19 +218,47 @@ func (s *zitadelService) ValidateOIDCAuthCallback(ctx context.Context, q url.Val
 }
 
 func zitadelUsername(connector string, identity zitadel.Identity) string {
+	if identity.Username != "" {
+		return identity.Username
+	}
 	digest := sha256.Sum256([]byte(connector + "\x00" + identity.Issuer + "\x00" + identity.Subject))
 	return "zitadel-" + hex.EncodeToString(digest[:16])
+}
+
+func zitadelTraits(identity zitadel.Identity) map[string][]string {
+	traits := make(map[string][]string, len(identity.Traits)+5)
+	for name, values := range identity.Traits {
+		traits[name] = slices.Clone(values)
+	}
+	traits["email"] = []string{identity.Email}
+	bindZitadelIdentityTraits(traits, identity)
+	return traits
+}
+
+func bindZitadelIdentityTraits(traits map[string][]string, identity zitadel.Identity) {
+	traits["iss"] = []string{identity.Issuer}
+	traits["sub"] = []string{identity.Subject}
+	traits["zitadel_issuer"] = []string{identity.Issuer}
+	traits["zitadel_subject"] = []string{identity.Subject}
 }
 
 func (s *zitadelService) issue(ctx context.Context, req *types.OIDCAuthRequest, identity zitadel.Identity) (*authclient.OIDCAuthResponse, error) {
 	a := s.auth
 	username := zitadelUsername(req.ConnectorID, identity)
-	traits := map[string][]string{"email": {identity.Email}, "zitadel_issuer": {identity.Issuer}, "zitadel_subject": {identity.Subject}}
+	if !backend.IsKeySafe(backend.NewKey(username)) {
+		return nil, trace.AccessDenied("invalid Zitadel account name")
+	}
+	traits := zitadelTraits(identity)
 	evaluation, err := a.GetLoginRuleEvaluator().Evaluate(ctx, &loginrule.EvaluationInput{Traits: traits})
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	traits = evaluation.Traits
+	traits = maps.Clone(evaluation.Traits)
+	if traits == nil {
+		traits = make(map[string][]string)
+	}
+	// Account ownership must survive profile changes and login-rule transforms.
+	bindZitadelIdentityTraits(traits, identity)
 	roleSet, err := services.FetchRolesWithContext(identity.Roles, a, services.RoleTemplateContext{Username: username, Traits: traits})
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -254,20 +282,7 @@ func (s *zitadelService) issue(ctx context.Context, req *types.OIDCAuthRequest, 
 			CreatedBy: types.CreatedBy{User: types.UserRef{Name: teleport.UserSystem}, Time: a.GetClock().Now().UTC(),
 				Connector: &types.ConnectorRef{Type: constants.OIDC, ID: req.ConnectorID, Identity: identity.Subject}}},
 	}
-	existing, err := a.Services.GetUser(ctx, username, false)
-	if err != nil && !trace.IsNotFound(err) {
-		return nil, trace.Wrap(err)
-	}
-	if existing != nil {
-		if !zitadelOwnsUser(existing, req.ConnectorID, identity.Subject) {
-			return nil, trace.AccessDenied("Zitadel user name belongs to another identity")
-		}
-		user.SetCreatedBy(existing.GetCreatedBy())
-		user.SetRevision(existing.GetRevision())
-		if _, err := a.UpdateUser(ctx, user); err != nil {
-			return nil, trace.Wrap(err)
-		}
-	} else if _, err := a.CreateUser(ctx, user); err != nil {
+	if err := upsertZitadelUser(ctx, a.Services, user, req.ConnectorID, identity); err != nil {
 		return nil, trace.Wrap(err)
 	}
 	if err := a.CallLoginHooks(ctx, user); err != nil {
@@ -320,11 +335,15 @@ func (s *zitadelService) issue(ctx context.Context, req *types.OIDCAuthRequest, 
 	return response, trace.Wrap(err)
 }
 
-func zitadelOwnsUser(user types.User, connector, subject string) bool {
+func zitadelOwnsUser(user types.User, connector string, identity zitadel.Identity) bool {
 	ref := user.GetCreatedBy().Connector
 	ids := user.GetOIDCIdentities()
-	return ref != nil && ref.Type == constants.OIDC && ref.ID == connector &&
-		len(ids) == 1 && ids[0].ConnectorID == connector && ids[0].UserID == subject
+	traits := user.GetTraits()
+	return identity.Issuer != "" && identity.Subject != "" && ref != nil &&
+		ref.Type == constants.OIDC && ref.ID == connector && ref.Identity == identity.Subject &&
+		len(ids) == 1 && ids[0].ConnectorID == connector && ids[0].UserID == identity.Subject &&
+		slices.Equal(traits["zitadel_issuer"], []string{identity.Issuer}) &&
+		slices.Equal(traits["zitadel_subject"], []string{identity.Subject})
 }
 
 type zitadelBackend struct{ backend backend.Backend }

@@ -33,13 +33,15 @@ func TestReadExampleConfig(t *testing.T) {
 func TestReadDisplayNameClaim(t *testing.T) {
 	cfg := testConfig()
 	cfg.DisplayNameClaim = "preferred_username"
+	cfg.UsernameClaim = "sub"
+	cfg.TraitClaims = []string{"amr", "groups"}
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	decoded, err := ReadConfig(strings.NewReader(string(data)), "secret")
-	if err != nil || decoded.DisplayNameClaim != cfg.DisplayNameClaim {
-		t.Fatalf("display name claim did not survive JSON configuration: %v", err)
+	if err != nil || decoded.DisplayNameClaim != cfg.DisplayNameClaim || decoded.UsernameClaim != cfg.UsernameClaim || strings.Join(decoded.TraitClaims, ",") != "amr,groups" {
+		t.Fatalf("claim selections did not survive JSON configuration: %v", err)
 	}
 }
 

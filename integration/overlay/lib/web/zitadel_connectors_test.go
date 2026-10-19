@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/ghodss/yaml"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/auth/authclient"
 	"github.com/gravitational/teleport/lib/web/ui"
@@ -61,10 +62,12 @@ func TestZitadelConnectorParsingAndSecretRedaction(t *testing.T) {
 		"metadata": map[string]any{"name": "zitadel", "revision": "revision-1", "labels": map[string]string{"zitadel/project-id": "123", "zitadel/organization-id": "456"}},
 		"spec": map[string]any{
 			"provider": "zitadel", "issuer_url": "https://idp.example", "client_id": "client", "client_secret": "SECRET-private",
+			"username_claim":  "preferred_username",
 			"redirect_url":    "https://teleport.example/v1/webapi/oidc/callback",
 			"claims_to_roles": []any{map[string]any{"claim": "urn:zitadel:iam:org:project:123:roles", "value": "operator", "roles": []string{"lab-access"}}},
 		},
 	}
+	resource["metadata"].(map[string]any)["labels"].(map[string]string)["zitadel/trait-claims"] = `["groups","amr"]`
 	data, err := json.Marshal(resource)
 	require.NoError(t, err)
 	connector, err := unmarshalZitadelConnector(data)
@@ -73,6 +76,13 @@ func TestZitadelConnectorParsingAndSecretRedaction(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, item.Content, "SECRET")
 	require.Contains(t, item.Content, zitadelHiddenSecret)
+	require.Equal(t, "preferred_username", connector.GetUsernameClaim())
+	require.Contains(t, item.Content, "username_claim: preferred_username")
+	roundTripJSON, err := yaml.YAMLToJSON([]byte(item.Content))
+	require.NoError(t, err)
+	roundTrip, err := unmarshalZitadelConnector(roundTripJSON)
+	require.NoError(t, err)
+	require.Equal(t, `["groups","amr"]`, roundTrip.GetMetadata().Labels["zitadel/trait-claims"])
 	require.Equal(t, "SECRET-private", connector.GetClientSecret(), "redaction must not mutate the stored credential")
 	resource["spec"].(map[string]any)["client_secert"] = "SECRET-unknown-field"
 	data, _ = json.Marshal(resource)

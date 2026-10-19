@@ -19,6 +19,13 @@ choose **Zitadel Local Lab**, and select operator or administrator. Both may
 access the local SSH node; administrator also has the `editor` role. Other IdP
 buttons exercise denied cases.
 
+New mock labs use `preferred_username` as the actual Teleport username
+(`operator` or `administrator`). The account menu still displays the verified
+email. Existing clusters retain their connector settings across restarts.
+The mock seed also selects `groups`, `amr`, and `email_verified` as additional
+traits. Browser checks verify the stored profiles and the selected extra claims,
+including profile fields returned only by UserInfo.
+
 Accept the generated localhost certificates at ports 3080 and 9443 in your
 test browser. The adapter validates the IdP certificate against the private
 lab CA. The CA and leaf certificates are valid for 30 days and remain in
@@ -52,7 +59,7 @@ Reports and screenshots go into ignored `tests/integration/test-results/`.
 
 | Check | Coverage |
 | --- | --- |
-| `make test-browser` | Successful/denied login, readable labels, stable identity, callback replay, and CSRF |
+| `make test-browser` | Successful/denied login, usernames, display labels, stored traits, callback replay, and CSRF |
 | `make test-connectors` | Native YAML create/edit/delete, secret preservation, default selection, permissions, and stale revisions |
 | `make test-cli` | `tsh` OIDC login, 30-minute certificates, node listing, and SSH |
 
@@ -97,6 +104,12 @@ organization ID, exact role mappings, and callback
 `dev/generated-real/client-secret` with the application secret and set its
 permissions to `0600`. These files are gitignored. Configure the application
 and role grants as described in [configuration](configuration.md).
+
+To use readable account names, set `"username_claim": "preferred_username"`
+in the initial `adapter.json` seed, or `spec.username_claim: preferred_username`
+on the native connector in an existing cluster. Changing this setting requires
+a fresh login and does not rename previously created user records. The account
+menu's display label is configured separately.
 
 ```sh
 make lab-down

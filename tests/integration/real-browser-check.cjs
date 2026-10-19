@@ -46,7 +46,7 @@ const { chromium } = require('playwright');
     await page.waitForURL(url => url.origin === issuer.origin && url.pathname.startsWith('/ui/'), { timeout: 30000 });
     assert(authorization, 'Browser did not request the Zitadel authorization endpoint');
     const scopes = new Set(authorization.searchParams.get('scope').split(' '));
-    for (const scope of ['openid', 'email',
+    for (const scope of ['openid', 'profile', 'email',
       'urn:zitadel:iam:org:project:id:' + cfg.project_id + ':aud',
       'urn:zitadel:iam:org:projects:roles']) {
       assert(scopes.has(scope), 'Browser authorization request is missing a required role or identity scope');

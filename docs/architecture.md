@@ -41,11 +41,27 @@ checkout.
    invokes host login hooks, and issues the session or certificates through
    Teleport's existing machinery.
 
-The internal username derives from connector, issuer, and subject. The account
-menu defaults to verified email; a connector can select another top-level
-string claim with `zitadel/display-name-claim`. The adapter persists that
-display label separately from the email trait. Changing email or display
-labels does not change the immutable identity key.
+The username defaults to a hash of connector, issuer, and subject. An explicit
+`spec.username_claim` selects an actual account name from a validated string
+claim. Both modes bind stored users to connector, issuer, and subject and
+reject collisions with another identity. Updates use backend revisions;
+creates require the name to be absent. Naming changes select another account
+name without automatically renaming or deleting existing users.
+
+The account menu defaults to verified email; a connector can select another
+top-level string claim with `zitadel/display-name-claim`. The adapter persists
+that display label separately from the email trait and actual username.
+Display changes do not change account ownership or its name.
+
+The adapter exports available profile claims and an explicit allowlist of
+additional top-level claims as bounded string-list traits. Subject-matched
+UserInfo may fill missing profile/custom fields; token metadata comes only
+from the verified ID token. Each login replaces the stored trait map, including
+removing claims that disappeared. The bridge passes traits through login rules
+and role templates, then persists them on the user and issues credentials
+through Teleport. Issuer/subject aliases and protected identity bindings are
+restored after login rules. Provider group claims do not replace exact
+project/organization role mappings.
 
 ## Transactions and connector revisions
 
@@ -76,7 +92,9 @@ remaining supported connector or local authentication.
 | Browser and `tsh` OIDC login | Zitadel, HTTP Basic client authentication, RS256, HTTPS, and S256 PKCE |
 | Role mapping | Exact project, receiving organization, and role keys |
 | Native connector editor | Create/edit/delete, secret preservation, and default selection |
-| Account labels | Configurable string claim, verified email fallback, and immutable account ID |
+| Account names | Subject-based hash by default; optional native `username_claim` with identity-bound collision checks |
+| Account labels | Independent string claim with verified email fallback |
+| User traits | Profile defaults plus a configurable allowlist of flat custom claims |
 | AMR and authentication age | Signed claims; separate Teleport SSO MFA challenges remain unsupported |
 
 SAML, generic enterprise OIDC, the native connector test flow, and Teleport SSO

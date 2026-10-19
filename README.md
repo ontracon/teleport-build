@@ -59,6 +59,16 @@ The account menu shows verified email by default. Set
 or another string claim to change the label. See
 [display label configuration](docs/configuration.md#account-display-label).
 
+To use a claim as the actual Teleport username, set
+`spec.username_claim: preferred_username` in the connector. Omitting it keeps
+the default hashed account name. See [account naming](docs/configuration.md#account-username)
+for claim requirements, collision handling, and existing accounts.
+
+User traits include verified identity and available profile claims. Add
+`metadata.labels["zitadel/trait-claims"]: '["groups", "amr"]'` to import
+additional claims. See [user traits](docs/configuration.md#user-traits) for
+supported values and claim precedence.
+
 For a local test against your own endpoint, follow
 [the real-lab setup](docs/development.md#real-zitadel).
 

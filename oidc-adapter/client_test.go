@@ -228,7 +228,9 @@ func TestSuccessfulAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(result.Identity, Identity{Issuer: "https://idp.example", Subject: "immutable-user-id", Email: "operator@example.com", DisplayName: "operator@example.com", Roles: []string{"access"}}) {
+	if !reflect.DeepEqual(result.Identity, Identity{Issuer: "https://idp.example", Subject: "immutable-user-id", Email: "operator@example.com", DisplayName: "operator@example.com", Roles: []string{"access"}, Traits: map[string][]string{
+		"email": {"operator@example.com"}, "iss": {"https://idp.example"}, "sub": {"immutable-user-id"},
+	}}) {
 		t.Fatalf("unexpected identity: %+v", result.Identity)
 	}
 	if string(result.Request) != `{"connector_id":"Zitadel","public_key":"trusted-host-key"}` || result.AuthenticatedAt.IsZero() || result.TokenExpiry.IsZero() {

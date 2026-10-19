@@ -1,5 +1,6 @@
 // Exercise the actual Teleport UI and callback cookie handling with the mock.
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -10,6 +11,20 @@ fs.mkdirSync(results, { recursive: true });
 const chrome = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const displayOnly = process.argv.includes('--display-only');
 const sessionCookie = cookies => cookies.some(cookie => cookie.name === '__Host-session' && cookie.value);
+
+// Existing clusters retain their native connector across image rebuilds.
+const resource = name => {
+  const items = JSON.parse(execFileSync('docker', [
+    'compose', '-f', 'dev/compose.yaml', 'exec', '-T', 'teleport',
+    '/usr/local/bin/tctl', '--config=/lab/generated/teleport.yaml',
+    'get', name, '--format=json',
+  ], { cwd: path.resolve(__dirname, '../..'), encoding: 'utf8' }));
+  return Array.isArray(items) ? items[0] : items;
+};
+const connector = resource('oidc/zitadel');
+const usernameClaim = connector.spec.username_claim || '';
+const traitClaims = new Set(JSON.parse(connector.metadata.labels?.['zitadel/trait-claims'] || '[]'));
+assert(['', 'preferred_username'].includes(usernameClaim), 'mock smoke test expects the default username policy');
 
 async function begin(page) {
   await page.goto(base, { waitUntil: 'networkidle' });
@@ -53,8 +68,23 @@ async function begin(page) {
           // bearer-token headers or exposing session credentials.
           const response = await authenticatedContext;
           const user = await response.json();
-          assert.match(user.userName, /^zitadel-[a-f0-9]{32}$/, 'readable label replaced the authentication identity');
+          if (usernameClaim) {
+            assert.equal(user.userName, name, 'authentication identity did not use preferred_username');
+          } else {
+            assert.match(user.userName, /^zitadel-[a-f0-9]{32}$/, 'default authentication identity is not the stable hash');
+          }
           assert.equal(user.displayName, name + '@lab.invalid', 'user context is missing the verified display email');
+          const traits = resource('user/' + user.userName).spec.traits;
+          for (const [claim, value] of Object.entries({
+            preferred_username: name, name: 'Lab ' + name, given_name: 'Lab', family_name: name,
+            nickname: name, locale: 'en', email: name + '@lab.invalid',
+            iss: 'https://localhost:9443', sub: 'lab-' + name,
+            zitadel_issuer: 'https://localhost:9443', zitadel_subject: 'lab-' + name,
+          })) assert.deepEqual(traits[claim], [value], 'missing/incorrect stored trait: ' + claim);
+          if (traitClaims.has('groups')) assert.deepEqual(traits.groups, ['123:' + name]);
+          if (traitClaims.has('amr')) assert.deepEqual(traits.amr, ['pwd', 'mfa']);
+          if (traitClaims.has('email_verified')) assert.deepEqual(traits.email_verified, ['true']);
+          if (!traitClaims.has('groups')) assert.equal(traits.groups, undefined, 'unselected groups escaped the allowlist');
           await page.screenshot({ path: path.join(results, name + '.png'), fullPage: true });
           assert(callback, 'browser callback was not observed');
           if (!displayOnly) {
@@ -66,7 +96,7 @@ async function begin(page) {
           assert(!sessionCookie(await context.cookies(base)), 'denied login set a Teleport session cookie');
         }
         report.push({ case: name, passed: true });
-        console.log('PASS ' + name + (success ? ': readable email and stable authentication identity' : ''));
+        console.log('PASS ' + name + (success ? ': username, display label, and stored profile traits' : ''));
       } catch (error) {
         await page.screenshot({ path: path.join(results, 'failure.png'), fullPage: true }).catch(() => {});
         throw error;

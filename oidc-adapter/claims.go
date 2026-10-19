@@ -10,13 +10,33 @@ import (
 
 // Identity is verified authentication data, not a Teleport certificate request.
 // Hosts must link users by issuer + subject and protect existing user records
-// against takeover. Email is display data and must not be the linking key.
+// against takeover, including when Username supplies a claim-based account name.
 type Identity struct {
 	Issuer      string
 	Subject     string
+	Username    string
 	Email       string
 	DisplayName string
 	Roles       []string
+	// Traits contains optional profile/custom claims plus verified email, iss,
+	// and sub. Hosts must preserve their own protected identity bindings.
+	Traits map[string][]string
+}
+
+// usernameClaim accepts exact account names supported by Teleport's backend
+// key sanitizer. Names are never trimmed, folded, or replaced with a fallback.
+func usernameClaim(raw json.RawMessage) (string, error) {
+	var value string
+	if json.Unmarshal(raw, &value) != nil || value == "" || len(value) > 256 || value == "." || value == ".." {
+		return "", ErrDenied
+	}
+	for _, ch := range value {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || strings.ContainsRune("@_:.-+", ch) {
+			continue
+		}
+		return "", ErrDenied
+	}
+	return value, nil
 }
 
 // displayName accepts plain provider text for presentation. It never selects

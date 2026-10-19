@@ -32,6 +32,8 @@ spec:
   client_secret: "<client-secret>"
   redirect_url: "https://localhost:3080/v1/webapi/oidc/callback"
   pkce_mode: enabled
+  # Optional actual account name; omit to keep the hashed default.
+  # username_claim: preferred_username
   claims_to_roles:
     - claim: "urn:zitadel:iam:org:project:123456789:roles"
       value: "platform-admin"
@@ -91,9 +93,53 @@ admin MFA policy. Ordinary lab operators cannot edit connectors. A mapped
 `editor` role grants resource administration; `access` and the fixture's
 `lab-access` role control resource access.
 
-Accounts retain an immutable connector/issuer/subject-based username. The
-account menu uses the display label described below, with that internal name
-as its fallback for accounts without a saved label.
+Accounts are bound to a connector, issuer, and subject. Their usernames default
+to a hash of that identity; the optional naming policy below can use a claim
+instead. The account menu uses a separate display label, with the actual
+username as its fallback for accounts without a saved label.
+
+## Account username
+
+Use the native OIDC field to choose the actual Teleport account name:
+
+```yaml
+spec:
+  username_claim: preferred_username
+```
+
+`email`, `sub`, and custom top-level string claims are supported too. The
+selected value becomes the user resource name and the username used for
+certificates, audit events, and username-based role templates. It is
+independent of `zitadel/display-name-claim` and the verified `email` trait.
+
+Omitting `username_claim`, or setting it to an empty string, preserves this
+adapter's existing `zitadel-<hash>` naming. Unlike Teleport's native enterprise
+OIDC connector, the default is not the email address. See
+[Teleport's username claim documentation](https://goteleport.com/docs/zero-trust-access/sso/integrate-idp/oidc/#optional-specify-a-claim-to-use-as-the-username).
+
+The claim name is an exact top-level JSON key. The ID token takes precedence;
+a missing claim may come from UserInfo only when its subject matches the ID
+token. A configured username claim is required: missing, empty, non-string,
+or invalid values reject login, without falling back to email or a hash.
+Names are case-sensitive and are never trimmed or normalized. They must be
+at most 256 ASCII characters using letters, digits, `@`, `_`, `:`, `.`, `-`,
+or `+`; `.` and `..` alone are rejected. These characters match Teleport's
+backend key restrictions. A verified email is still required for login.
+
+Usernames share the cluster-wide namespace. An existing user is updated only
+when its recorded connector, issuer, and subject match the authenticated
+identity. Local accounts, users from another connector or issuer, and other
+subjects cannot be taken over by selecting the same claim value. Concurrent
+creates and updates retain the backend's existence and revision checks.
+The `zitadel_issuer` and `zitadel_subject` traits are reserved identity data
+and are preserved after login-rule evaluation.
+
+Enabling the field for an existing cluster, changing its selected claim, or
+changing the claim value selects the corresponding account name on the next
+SSO login. Existing accounts are not automatically renamed, merged, or
+deleted; they retain their current expiry, and existing sessions and
+certificates retain their lifetimes. New logins receive the roles mapped by
+the connector at that time. Connector edits invalidate pending logins.
 
 ## Account display label
 
@@ -125,10 +171,66 @@ invalidates pending logins. It changes presentation only: the account ID,
 email trait, role mappings, and certificate username retain their existing
 meaning. Display labels need not be unique.
 
-Teleport's native `spec.username_claim` selects the actual Teleport username.
-This adapter rejects that field to preserve its stable account identity; use
-`zitadel/display-name-claim` for presentation. See
-[Teleport's username claim documentation](https://goteleport.com/docs/zero-trust-access/sso/integrate-idp/oidc/#optional-specify-a-claim-to-use-as-the-username).
+`spec.username_claim` selects the actual Teleport username as described
+above. Use `zitadel/display-name-claim` to change presentation independently.
+
+## User traits
+
+Successful logins store verified `email`, `iss`, and `sub`, together with the
+protected `zitadel_issuer` and `zitadel_subject` identity bindings. Available
+`preferred_username`, `name`, `given_name`, `family_name`, `nickname`, and
+`locale` claims are included automatically. Selecting `username_claim` or a
+display label remains independent of exporting a claim as a trait.
+
+Import additional top-level claims through a JSON array in a connector label:
+
+```yaml
+metadata:
+  labels:
+    zitadel/trait-claims: '["groups", "amr", "email_verified", "auth_time"]'
+```
+
+The standalone/lab seed equivalent is `"trait_claims": ["groups", "amr"]`.
+This adds to the default traits; an empty list adds nothing. Names are exact
+JSON keys, not nested paths or wildcards. At most 32 additional names are
+accepted. Credential/transaction names such as `access_token`, `id_token`,
+`refresh_token`, `client_secret`, `nonce`, and `code_verifier`, and names
+starting with `zitadel_`, are rejected.
+
+String claims become single-value traits and string arrays retain all their
+values. Scalar booleans become `"true"` or `"false"`; numbers retain their JSON
+representation as strings, without floating-point rounding. Missing/null,
+empty, structured, mixed-array, or malformed values are omitted. Values must
+not contain control characters. Each optional value is limited to 1,024 bytes
+and each array to 128 values. An optional claim is also omitted if adding its
+name/values would take the claim-name/value payload beyond 32 KiB. Claims
+exceeding a limit are omitted as a whole, never truncated; verified identity
+fields are retained.
+
+The verified ID token takes precedence, including when a signed claim has an
+unsuitable value. Missing profile/custom claims trigger one UserInfo request;
+its subject must match the ID token before any fields are merged. A failed
+lookup may leave optional traits absent when the core identity, email, and
+project-role checks are already complete. A subject mismatch rejects login.
+
+Token/session claims such as `aud`, `azp`, `client_id`, `sid`, `at_hash`, `amr`,
+`acr`, and `auth_time` can be selected explicitly, but are exported only from
+the ID token. They are never filled from UserInfo, including when selected as
+the username or display source. Missing claims are not fabricated; in
+particular, `client_id` is not an automatic alias for `azp`.
+
+`groups` must already be a flat claim supplied by Zitadel, for example through
+a custom Action. The adapter does not flatten nested project-role objects or
+map groups directly to Teleport roles. The configured project, receiving
+organization, and exact role mappings still determine the assigned roles.
+Imported traits can be referenced by role templates, such as
+`{{external.preferred_username}}` or `{{external.groups}}`.
+
+Traits are rebuilt on every successful login, so removed/missing claims do
+not leave stale group membership on the stored user. Existing sessions and
+certificates retain their issued traits until renewed. Login rules may
+transform traits; `iss`, `sub`, `zitadel_issuer`, and `zitadel_subject` are
+restored from the verified identity afterwards.
 
 ## Optional authentication policy
 
@@ -137,7 +239,7 @@ values as a label string. Native `spec.max_age` is supported and requires a
 sufficiently recent signed `auth_time`. These checks are distinct from
 Teleport's SSO MFA challenge flow, which remains unsupported.
 
-Additional scopes, disabled PKCE, unverified email, `spec.username_claim`,
+Additional scopes, disabled PKCE, unverified email,
 unsupported OIDC provider settings, and unknown `zitadel/` labels are rejected.
 
 ## Bootstrap compatibility

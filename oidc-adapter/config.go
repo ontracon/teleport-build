@@ -28,9 +28,15 @@ type Config struct {
 	RedirectURL    string `json:"redirect_url"`
 	ProjectID      string `json:"project_id"`
 	OrganizationID string `json:"organization_id"`
+	// UsernameClaim optionally selects the actual host account name. An empty
+	// value leaves account naming to the host's stable issuer/subject mapping.
+	UsernameClaim string `json:"username_claim,omitempty"`
 	// DisplayNameClaim selects a top-level string claim for presentation only.
 	// Missing or unsuitable values fall back to the verified email.
 	DisplayNameClaim string `json:"display_name_claim,omitempty"`
+	// TraitClaims adds optional top-level claims to the default profile traits.
+	// Provider credentials and reserved host identity traits cannot be exported.
+	TraitClaims []string `json:"trait_claims,omitempty"`
 	// RoleMappings map exact Zitadel project roles to existing Teleport roles.
 	RoleMappings   map[string][]string `json:"role_mappings"`
 	TransactionTTL time.Duration       `json:"-"`
@@ -87,11 +93,25 @@ func (c Config) validated() (Config, error) {
 	if c.DisplayNameClaim == "" {
 		c.DisplayNameClaim = "email"
 	}
-	if len(c.DisplayNameClaim) > 256 || strings.ContainsFunc(c.DisplayNameClaim, func(r rune) bool {
-		return unicode.IsSpace(r) || unicode.IsControl(r)
-	}) {
+	if !claimName(c.DisplayNameClaim) {
 		return c, errors.New("display name claim must be a top-level claim name without whitespace, at most 256 bytes")
 	}
+	if c.UsernameClaim != "" && !claimName(c.UsernameClaim) {
+		return c, errors.New("username claim must be a top-level claim name without whitespace, at most 256 bytes")
+	}
+	if len(c.TraitClaims) > 32 {
+		return c, errors.New("at most 32 additional trait claims are supported")
+	}
+	c.TraitClaims = slices.Clone(c.TraitClaims)
+	for _, name := range c.TraitClaims {
+		if !claimName(name) || strings.HasPrefix(name, "zitadel_") || slices.Contains([]string{
+			"access_token", "refresh_token", "id_token", "client_secret", "code", "code_verifier", "nonce",
+		}, name) {
+			return c, errors.New("trait claims must be valid top-level names and cannot expose credentials or reserved identity data")
+		}
+	}
+	slices.Sort(c.TraitClaims)
+	c.TraitClaims = slices.Compact(c.TraitClaims)
 	if len(c.RoleMappings) == 0 {
 		return c, errors.New("at least one explicit role mapping is required")
 	}
@@ -117,6 +137,12 @@ func (c Config) validated() (Config, error) {
 		}
 	}
 	return c, nil
+}
+
+func claimName(value string) bool {
+	return value != "" && len(value) <= 256 && !strings.ContainsFunc(value, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	})
 }
 
 func identifier(value string) bool {

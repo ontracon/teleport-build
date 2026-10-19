@@ -31,6 +31,8 @@ func TestZitadelNativePolicy(t *testing.T) {
 	c.Spec.MaxAge = &types.MaxAge{Value: types.NewDuration(10 * time.Minute)}
 	c.Metadata.Labels[ZitadelAMRLabel] = `["otp"]`
 	c.Metadata.Labels[ZitadelDisplayNameLabel] = "preferred_username"
+	c.Spec.UsernameClaim = "sub"
+	c.Metadata.Labels[ZitadelTraitClaimsLabel] = `["groups","amr"]`
 	cfg, err := ZitadelConfigFromConnector(c)
 	require.NoError(t, err)
 	require.Equal(t, "123", cfg.ProjectID)
@@ -39,6 +41,8 @@ func TestZitadelNativePolicy(t *testing.T) {
 	require.Equal(t, 10*time.Minute, cfg.MaxAuthenticationAge)
 	require.Equal(t, []string{"otp"}, cfg.RequiredAMR)
 	require.Equal(t, "preferred_username", cfg.DisplayNameClaim)
+	require.Equal(t, "sub", cfg.UsernameClaim)
+	require.Equal(t, []string{"amr", "groups"}, cfg.TraitClaims)
 	require.Equal(t, []string{"lab-access"}, cfg.RoleMappings["operator"])
 	require.Len(t, cfg.PolicyRevision, 64)
 	c.Spec.ClaimsToRoles[0].Roles[0] = "editor"
@@ -50,6 +54,7 @@ func TestZitadelNativeDisplayNamePolicy(t *testing.T) {
 	cfg, err := ZitadelConfigFromConnector(c)
 	require.NoError(t, err)
 	require.Equal(t, "email", cfg.DisplayNameClaim)
+	require.Empty(t, cfg.UsernameClaim)
 	c.Metadata.Labels[ZitadelDisplayNameLabel] = "name"
 	cfg, err = ZitadelConfigFromConnector(c)
 	require.NoError(t, err)
@@ -58,13 +63,10 @@ func TestZitadelNativeDisplayNamePolicy(t *testing.T) {
 	_, err = ZitadelConfigFromConnector(c)
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "SECRET")
-	c.Spec.UsernameClaim = "preferred_username"
-	_, err = ZitadelConfigFromConnector(c)
-	require.ErrorContains(t, err, "zitadel/display-name-claim")
 }
 
 func TestZitadelNativePolicyRejectsUnsupportedConfiguration(t *testing.T) {
-	for _, name := range []string{"other provider", "wrong project claim", "generic role claim", "missing organization", "unknown label", "unverified email", "username claim", "disabled PKCE", "extra scope", "wildcard role", "duplicate mapping", "invalid AMR", "invalid TTL"} {
+	for _, name := range []string{"other provider", "wrong project claim", "generic role claim", "missing organization", "unknown label", "unverified email", "invalid username claim", "disabled PKCE", "extra scope", "wildcard role", "duplicate mapping", "invalid AMR", "invalid TTL", "invalid trait JSON", "null trait list", "reserved trait", "invalid trait name"} {
 		t.Run(name, func(t *testing.T) {
 			c := testNativeZitadelConnector(t)
 			switch name {
@@ -80,8 +82,8 @@ func TestZitadelNativePolicyRejectsUnsupportedConfiguration(t *testing.T) {
 				c.Metadata.Labels["zitadel/organization-id-typo"] = "456"
 			case "unverified email":
 				c.Spec.AllowUnverifiedEmail = true
-			case "username claim":
-				c.Spec.UsernameClaim = "email"
+			case "invalid username claim":
+				c.Spec.UsernameClaim = "SECRET-invalid claim"
 			case "disabled PKCE":
 				c.Spec.PKCEMode = "disabled"
 			case "extra scope":
@@ -94,6 +96,14 @@ func TestZitadelNativePolicyRejectsUnsupportedConfiguration(t *testing.T) {
 				c.Metadata.Labels[ZitadelAMRLabel] = "SECRET-invalid-json"
 			case "invalid TTL":
 				c.Metadata.Labels[ZitadelTTLLabel] = "SECRET-not-a-duration"
+			case "invalid trait JSON":
+				c.Metadata.Labels[ZitadelTraitClaimsLabel] = "SECRET-invalid-json"
+			case "null trait list":
+				c.Metadata.Labels[ZitadelTraitClaimsLabel] = "null"
+			case "reserved trait":
+				c.Metadata.Labels[ZitadelTraitClaimsLabel] = `["zitadel_subject"]`
+			case "invalid trait name":
+				c.Metadata.Labels[ZitadelTraitClaimsLabel] = `["SECRET-invalid claim"]`
 			}
 			_, err := ZitadelConfigFromConnector(c)
 			require.Error(t, err)
@@ -103,7 +113,7 @@ func TestZitadelNativePolicyRejectsUnsupportedConfiguration(t *testing.T) {
 }
 
 func TestZitadelNativeRevisionsBindEveryPolicyChange(t *testing.T) {
-	for _, name := range []string{"revision", "secret", "organization", "project", "roles", "name", "display claim"} {
+	for _, name := range []string{"revision", "secret", "organization", "project", "roles", "name", "display claim", "username claim", "trait claims"} {
 		t.Run(name, func(t *testing.T) {
 			c := testNativeZitadelConnector(t)
 			original, err := ZitadelConfigFromConnector(c)
@@ -124,6 +134,10 @@ func TestZitadelNativeRevisionsBindEveryPolicyChange(t *testing.T) {
 				c.SetName("another-connector")
 			case "display claim":
 				c.Metadata.Labels[ZitadelDisplayNameLabel] = "name"
+			case "username claim":
+				c.Spec.UsernameClaim = "preferred_username"
+			case "trait claims":
+				c.Metadata.Labels[ZitadelTraitClaimsLabel] = `["groups"]`
 			}
 			updated, err := ZitadelConfigFromConnector(c)
 			require.NoError(t, err)
