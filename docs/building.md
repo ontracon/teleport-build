@@ -7,7 +7,7 @@ separate builder image is required.
 
 Source is pinned to Teleport v18.10.0 at
 `ddaa46b8f4ee579d43480cd2d3b6a14b18e3ef7d`. The source pin lives in
-`integration/upstream.commit`; source/toolchain versions and image digests are
+`integration/upstream.commit`. Source/toolchain versions and image digests are
 checked during the build.
 
 ## Runtime image
@@ -21,12 +21,12 @@ make build
 This builds `teleport-zitadel:18.10.0`. It contains the patched server, embedded
 Web UI, `tctl`, the descriptor helper, required runtime libraries, license, and
 build manifest. Source, compilers, Node.js, Rust, and JavaScript dependencies
-remain in build stages. The entrypoint is `/usr/local/bin/teleport`; the default
+remain in build stages. The entrypoint is `/usr/local/bin/teleport`. The default
 command is `start --config=/etc/teleport.yaml`.
 
 Mount the server configuration at `/etc/teleport.yaml` and persist its configured
 data directory, normally `/var/lib/teleport`. The built-in Zitadel integration
-is enabled; connector settings are [native resources](configuration.md).
+is enabled. Connector settings are [native resources](configuration.md).
 
 ## Lab image
 
@@ -60,7 +60,7 @@ layers, after starting each image:
 | Previous AlmaLinux lab | 8.49 GB |
 
 Compressed transfer sizes are smaller. The runtime and lab share their server
-layers; the lab is about 88% smaller than its predecessor. Compiler caches
+layers. The lab is about 88% smaller than its predecessor. Compiler caches
 remain separate from these image sizes.
 
 ## Build stages and caching
@@ -88,7 +88,7 @@ integration files, so adapter/UI edits can reuse that layer.
 
 The first build compiles the native toolchain dependencies. Later builds reuse
 retained stages and compile affected code. Docker's cache storage limits can
-evict these stages; the compiler cache is much larger than the final runtime.
+evict these stages. The compiler cache is much larger than the final runtime.
 Compiler concurrency defaults to 2, and the default target is Linux amd64:
 
 ```sh
@@ -110,16 +110,16 @@ Go-cache, and output paths before each suite and on exit in
 `test-results/disk-usage.log`. These details are also printed in the build log,
 so they remain visible when a failed stage prevents artifact export.
 
-Each requested platform is compiled natively in its build environment; an
+Each requested platform is compiled natively in its build environment. An
 arm64 host can emulate the amd64 build. Platform support must be verified on
 the requested target rather than inferred from a successful amd64 build.
 
 ## Checks and exports
 
 Every runtime/lab build depends on the verified stage. It checks binary
-checksums, versions, and native feature tags; starts an isolated Auth/Proxy;
-fetches embedded UI assets; and runs selected upstream, adapter, bridge, and
-account-label tests. To build that stage explicitly:
+checksums, versions, and native feature tags. It also starts an isolated
+Auth/Proxy, fetches embedded UI assets, and runs selected upstream, adapter,
+bridge, and account-label tests. To build that stage explicitly:
 
 ```sh
 make build-test
@@ -140,7 +140,7 @@ The artifact target exports all six binaries, `LICENSE`, `SHA256SUMS`,
 `manifest.json`, and test reports to ignored `dist/linux-amd64/` by default.
 The manifest records source, toolchains, architecture, binary checksums, and
 integration source hashes. Exported Linux binaries use the Debian build's
-runtime ABI; the container supplies matching libraries.
+runtime ABI. The container supplies matching libraries.
 
 ## Release CI
 
@@ -150,7 +150,7 @@ Debian toolchains, source preparation, patched Web UI, and verification stage
 as local container builds. Windows amd64 and macOS arm64/amd64 `tsh` clients
 continue to build natively against the same upstream commit.
 
-The requested tag must resolve to `integration/upstream.commit`; unsupported
+The requested tag must resolve to `integration/upstream.commit`. Unsupported
 tags fail before build jobs start. Before packaging, the release verifier
 checks the version, commit, platform, all six binary hashes, passing test marker,
 and every recorded integration hash against the current adapter and patches.
@@ -159,7 +159,7 @@ client jobs succeed.
 
 Each publication creates a numbered release, such as
 `v18.10.0-build.42.1`, with a title ending in `(build 42.1)`. The numbers are
-the workflow run number and run attempt; numbering is workflow-wide rather
+the workflow run number and run attempt. Numbering is workflow-wide rather
 than restarting for each Teleport version. A new dispatch increments the run
 number, and rerunning a workflow increments the attempt. Archive and checksum
 filenames also include `-build.42.1`, while the binaries retain the upstream
@@ -167,8 +167,8 @@ Teleport version.
 
 Each release tag targets the build repository commit used by that run, and
 the generated notes record the upstream commit, build repository commit, and
-release build number. Existing releases, tags, notes, and assets are preserved;
-if a numbered release already exists, publication fails rather than replacing it.
+release build number. Existing releases, tags, notes, and assets are preserved.
+If a numbered release already exists, publication fails rather than replacing it.
 
 The Linux build and release jobs default to GitHub-hosted `ubuntu-24.04`.
 The `runner` dispatch input accepts a JSON array of labels to select another
@@ -183,7 +183,7 @@ The Linux runner needs Make, Python 3, Docker access, and Buildx Bake with a
 Linux amd64 Docker engine. Compilers and native development packages are
 provided by the Docker build. Persistent BuildKit caches on a self-hosted
 runner can be reused across releases. Exported upstream reports come from
-`dist/linux-amd64/test-results/`; focused integration test results also appear
+`dist/linux-amd64/test-results/`. Focused integration test results also appear
 in the build log. A failed verification stage does not export artifacts.
 
 Zitadel support is enabled by default in both Linux archives and container

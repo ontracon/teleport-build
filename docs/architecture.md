@@ -36,7 +36,7 @@ checkout.
    expiry, nonce, and applicable token/authentication bindings. UserInfo may
    fill missing claims only when its subject matches the ID token.
 4. Exact configured project roles must contain grants for the configured
-   organization. A verified email is required; provider tokens remain private.
+   organization. A verified email is required. Provider tokens remain private.
 5. The bridge checks the current connector revision, resolves Teleport roles,
    invokes host login hooks, and issues the session or certificates through
    Teleport's existing machinery.
@@ -44,18 +44,18 @@ checkout.
 The username defaults to a hash of connector, issuer, and subject. An explicit
 `spec.username_claim` selects an actual account name from a validated string
 claim. Both modes bind stored users to connector, issuer, and subject and
-reject collisions with another identity. Updates use backend revisions;
-creates require the name to be absent. Naming changes select another account
+reject collisions with another identity. Updates use backend revisions.
+Creates require the name to be absent. Naming changes select another account
 name without automatically renaming or deleting existing users.
 
-The account menu defaults to verified email; a connector can select another
+The account menu defaults to verified email. A connector can select another
 top-level string claim with `zitadel/display-name-claim`. The adapter persists
 that display label separately from the email trait and actual username.
 Display changes do not change account ownership or its name.
 
 The adapter exports available profile claims and an explicit allowlist of
 additional top-level claims as bounded string-list traits. Subject-matched
-UserInfo may fill missing profile/custom fields; token metadata comes only
+UserInfo may fill missing profile/custom fields. Token metadata comes only
 from the verified ID token. Each login replaces the stored trait map, including
 removing claims that disappeared. The bridge passes traits through login rules
 and role templates, then persists them on the user and issues credentials
@@ -78,7 +78,7 @@ the fingerprint again before issuing a session, rejecting edits during login.
 
 Authenticated Proxy endpoints expose native Zitadel connector CRUD through the
 caller's Teleport client. Existing resource permissions and admin MFA checks
-apply. Responses redact secrets; update requests can retain the stored secret
+apply. Responses redact secrets. Update requests can retain the stored secret
 through an explicit marker. Updates require the fetched backend revision.
 
 Listing uses the authoritative authentication preference without modifying it.
@@ -89,16 +89,21 @@ remaining supported connector or local authentication.
 
 | Implemented | Current boundary |
 | --- | --- |
-| Browser and `tsh` OIDC login | Zitadel, HTTP Basic client authentication, RS256, HTTPS, and S256 PKCE |
+| Browser and `tsh` OIDC login | Zitadel with None or HTTP Basic client authentication, RS256, HTTPS, and S256 PKCE |
 | Role mapping | Exact project, receiving organization, and role keys |
 | Native connector editor | Create/edit/delete, secret preservation, and default selection |
-| Account names | Subject-based hash by default; optional native `username_claim` with identity-bound collision checks |
+| Account names | Subject-based hash by default, with optional native `username_claim` with identity-bound collision checks |
 | Account labels | Independent string claim with verified email fallback |
 | User traits | Profile defaults plus a configurable allowlist of flat custom claims |
-| AMR and authentication age | Signed claims; separate Teleport SSO MFA challenges remain unsupported |
+| AMR and authentication age | Signed claims. Teleport SSO MFA challenges remain unsupported |
 
 SAML, generic enterprise OIDC, the native connector test flow, and Teleport SSO
 MFA challenge flows are not implemented.
+
+The tested real Zitadel application uses Authentication Method **None** with
+S256 PKCE. The adapter sends a Basic header and requires a nonempty secret
+locally, but Zitadel does not verify that secret for **None**. See
+[application settings](configuration.md#zitadel-application).
 
 Mock browser/CLI checks and a real Zitadel login have succeeded locally. The
 shared container build applies the integration before upstream `make full`,
@@ -110,4 +115,4 @@ Windows/macOS client builds.
 Release publishing, role-removal behavior over session/certificate lifetimes,
 locks and audit acceptance, logout propagation, multi-replica operation, and
 upgrades remain acceptance work. Runtime images contain executables and shared
-runtime libraries; compiler toolchains and source remain in build stages.
+runtime libraries. Compiler toolchains and source remain in build stages.

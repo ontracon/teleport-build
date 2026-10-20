@@ -34,7 +34,7 @@ make prepare-source SOURCE_DIR=/path/to/teleport
 Preflight verifies the revision, checks every patch against the index and
 working tree, and rejects existing adapter/overlay destinations. It writes
 nothing until all checks pass. Preparation leaves upstream modifications
-unstaged and does not create commits. Running it again fails; prepare a fresh
+unstaged and does not create commits. Running it again fails. Prepare a fresh
 checkout when rebuilding an edited patch series. It never resets developer
 changes or automatically resolves conflicts.
 
@@ -54,7 +54,7 @@ a distinct set of upstream files. Preserve upstream copyright/license headers
 and avoid unrelated formatting changes. Add genuinely new upstream edits to
 the appropriate patch, or add a numbered patch and list it in `series`.
 
-Verify the refreshed series using an existing upstream checkout; the test
+Verify the refreshed series using an existing upstream checkout. The test
 creates a separate sparse clone and leaves the supplied checkout untouched:
 
 ```sh
@@ -72,5 +72,5 @@ repeating compilation and integration checks.
 - [Local integration checks](../docs/development.md#integration-tests)
 
 The shared build includes the integration in both container images and Linux
-release archives. The plugin registers automatically; configure a native
+release archives. The plugin registers automatically. Configure a native
 Zitadel connector to use it.

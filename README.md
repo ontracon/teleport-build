@@ -20,8 +20,8 @@ make lab
 Open [https://localhost:3080](https://localhost:3080), accept the generated
 localhost certificate, select **Zitadel Local Lab**, and choose a test identity.
 The administrator can manage connectors under **Zero Trust Access → Auth
-Connectors**. The first build compiles Teleport and its native dependencies;
-subsequent starts reuse the existing image. After source changes, run
+Connectors**. The first build compiles Teleport and its native dependencies.
+Subsequent starts reuse the existing image. After source changes, run
 `make lab-build` to rebuild it.
 
 The mock and real labs share port 3080. If the real lab is running, stop it with
@@ -29,7 +29,7 @@ The mock and real labs share port 3080. If the real lab is running, stop it with
 endpoint, follow [the real-lab setup](docs/development.md#real-zitadel).
 
 ```sh
-make lab-down       # Stop services; retain cluster data and credentials
+make lab-down       # Stop services and retain cluster data and credentials
 make help           # List build and test commands
 ```
 
@@ -42,15 +42,21 @@ and explicit role mappings are required before Zitadel can grant access.
 
 To connect your Zitadel instance:
 
-1. Register a Zitadel application with HTTP Basic client authentication and
-   authorization code flow with S256 PKCE. Set its redirect URL to
+1. Register a Zitadel Web application with response type **Code**, grant type
+   **Authorization Code**, and S256 PKCE. Authentication Method **None**
+   works with the adapter. HTTP Basic client authentication is also supported.
+   Set its redirect URL to
    `https://<teleport-proxy>/v1/webapi/oidc/callback`. Enable project roles in
    the ID token or UserInfo, and assign the intended project role to your user.
 2. Sign in to Teleport as an administrator and open **Zero Trust Access →
    Auth Connectors → New Zitadel Connector**. Fill in the issuer, client
    credentials, project ID, receiving organization ID, and exact role mapping.
-   See [configuration](docs/configuration.md#connector-yaml) for the full YAML
-   and the alternative `tctl` setup. Mapped Teleport roles must already exist.
+   The adapter currently requires a nonempty `client_secret` even with
+   Authentication Method **None**. See
+   [application settings](docs/configuration.md#zitadel-application) for how
+   to fill it. See [configuration](docs/configuration.md#connector-yaml) for
+   the full YAML and the alternative `tctl` setup. Mapped Teleport roles must
+   already exist.
 3. Save the connector, use its tile menu to set it as the default if desired,
    and start a fresh login with Zitadel.
 
@@ -77,7 +83,7 @@ For a local test against your own endpoint, follow
 | Path | Output |
 | --- | --- |
 | `make build` | Debian slim runtime with patched Teleport, Web UI, and Zitadel |
-| `make lab-build` | Both runtime and lab images; the lab adds setup, CLI tools, and mock IdP |
+| `make lab-build` | Both runtime and lab images. The lab adds setup, CLI tools, and mock IdP |
 | `make artifacts` | All six compiled binaries, manifest, checksums, and reports |
 | Manual release workflow | Patched Linux archives with Zitadel and native Windows/macOS clients |
 
@@ -109,7 +115,7 @@ integration build. Supported features and remaining acceptance work are document
 
 Build outputs, development credentials, dependency caches, browser reports,
 and `deprecated/` are excluded from Git. Historical research and independent
-reference checkouts are preserved locally in `deprecated/`; active builds do
+reference checkouts are preserved locally in `deprecated/`. Active builds do
 not depend on them.
 
 ## Adapter checks

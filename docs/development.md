@@ -16,7 +16,7 @@ This starts the mock environment, building the shared Debian-based integration
 image if it is missing. Run `make lab-build` after changing source or build
 files. Open [https://localhost:3080](https://localhost:3080),
 choose **Zitadel Local Lab**, and select operator or administrator. Both may
-access the local SSH node; administrator also has the `editor` role. Other IdP
+access the local SSH node. Administrator also has the `editor` role. Other IdP
 buttons exercise denied cases.
 
 New mock labs use `preferred_username` as the actual Teleport username
@@ -101,9 +101,12 @@ chmod 600 dev/generated-real/adapter.json
 Edit `adapter.json` with your issuer, client ID, project ID, receiving
 organization ID, exact role mappings, and callback
 `https://localhost:3080/v1/webapi/oidc/callback`. Create
-`dev/generated-real/client-secret` with the application secret and set its
-permissions to `0600`. These files are gitignored. Configure the application
-and role grants as described in [configuration](configuration.md).
+`dev/generated-real/client-secret` with a nonempty value and set its
+permissions to `0600`. For Authentication Method **None + PKCE**, use a locally
+generated value. Zitadel does not verify this secret. For **Basic**, use the
+actual application secret issued by Zitadel. The adapter currently requires
+the value in both cases. These files are gitignored. Configure the application
+and role grants as described in [application settings](configuration.md#zitadel-application).
 
 To use readable account names, set `"username_claim": "preferred_username"`
 in the initial `adapter.json` seed, or `spec.username_claim: preferred_username`
@@ -125,11 +128,11 @@ make test-real
 ```
 
 This checks the browser handoff and configured role scopes. It accepts only
-the generated localhost leaf key; real issuer TLS remains validated. It does
+the generated localhost leaf key. Real issuer TLS remains validated. It does
 not enter user credentials or complete MFA.
 
 Existing environments retain their cluster volumes and seed files. Native
-connector resources are authoritative after initialization; manage subsequent
+connector resources are authoritative after initialization. Manage subsequent
 settings through the Web UI or `tctl`.
 
 To switch back to the mock lab:
@@ -148,7 +151,7 @@ docker compose -f dev/compose.real.yaml logs --tail=50 teleport
 
 The browser shows a generic callback error. Auth logs include a safe stage,
 reason, and provider HTTP status. `token_exchange` / `invalid_client` indicates
-client authentication; `role_mapping` indicates a project, role, or organization
+client authentication. `role_mapping` indicates a project, role, or organization
 mismatch. A mapped role granted in another organization still denies access
 and may report the relevant numeric grant organization IDs.
 

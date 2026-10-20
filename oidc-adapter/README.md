@@ -22,7 +22,7 @@ under `cmd/mock-idp/` supplies the local browser/CLI fixture.
 
 1. Construct a client from trusted configuration and a transaction store. Use
    a new client when policy or credentials change.
-2. Pass the validated, serialized host login request to `Begin`; retain its
+2. Pass the validated, serialized host login request to `Begin`. Retain its
    state, nonce, and PKCE verifier server-side.
 3. Redirect the browser to `Authorization.URL` and pass its callback parameters
    to `Complete`. Consumption is atomic and precedes exchange, including failures.
@@ -33,10 +33,10 @@ under `cmd/mock-idp/` supplies the local browser/CLI fixture.
 The host must preserve issuer/subject identity. `display_name_claim` selects
 a top-level string claim for presentation, defaulting to `email`. Missing or
 unsuitable labels fall back to verified email. `Identity.Email` remains the
-verified email independently of `Identity.DisplayName`; neither is a stable
+verified email independently of `Identity.DisplayName`. Neither is a stable
 account identifier. Optional `username_claim` supplies `Identity.Username`
 for actual account naming. Unset leaves that field empty for host-controlled
-naming; a configured claim must yield a valid account name or login fails.
+naming. A configured claim must yield a valid account name or login fails.
 The host must retain issuer/subject binding and reject account collisions,
 including when another identity presents the same username.
 UserInfo can fill missing fields only for the verified subject and cannot
@@ -45,9 +45,9 @@ through `AuthenticationError`.
 
 `Identity.Traits` contains verified `email`, `iss`, and `sub`, available profile
 fields, and optional `trait_claims` from trusted configuration. Strings and
-string lists are supported; scalar booleans/numbers have explicit string
+string lists are supported. Scalar booleans/numbers have explicit string
 representations. Unsupported or oversized claims are omitted as a whole.
-Token/session metadata can only come from the ID token; other missing claims
+Token/session metadata can only come from the ID token. Other missing claims
 may be filled by subject-matched UserInfo. Traits are rebuilt for every login.
 See [user traits](../docs/configuration.md#user-traits) for defaults, limits,
 reserved names, and optional lookup behavior.
@@ -65,9 +65,13 @@ prevents callback replay across replicas. The Teleport overlay binds that
 contract to its backend.
 
 Issuer, callback, and discovery endpoints require HTTPS. Discovered endpoints
-must remain on the issuer origin; redirects are refused. Requests time out
+must remain on the issuer origin. Redirects are refused. Requests time out
 within 15 seconds and provider response bodies are limited to 1 MiB. The client
-currently supports HTTP Basic authentication and RS256 signatures.
+uses RS256 signatures and sends HTTP Basic authentication alongside S256 PKCE.
+Zitadel applications configured with Authentication Method **None** also work:
+Zitadel validates PKCE without verifying the supplied secret. Local validation
+still requires a nonempty secret, even for **None**. See
+[application settings](../docs/configuration.md#zitadel-application).
 
 See [architecture](../docs/architecture.md) for the integration, revision
 binding, supported features, and remaining acceptance work.
