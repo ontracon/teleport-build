@@ -1,0 +1,12 @@
+diff --git a/api/types/oidc.go b/api/types/oidc.go
+--- a/api/types/oidc.go
++++ b/api/types/oidc.go
+@@ -429,7 +429,7 @@ func (o *OIDCConnectorV3) CheckAndSetDefaults() error {
+ 		return trace.BadParameter("OIDC connector is missing required client_id")
+ 	}
+ 
+-	if o.Spec.ClientSecret == "" {
++	if o.Spec.ClientSecret == "" && o.Spec.Provider != "zitadel" {
+ 		return trace.BadParameter("OIDC connector is missing required client_secret")
+ 	}
+ 	if strings.HasPrefix(o.Spec.ClientSecret, "file://") {

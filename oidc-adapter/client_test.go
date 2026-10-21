@@ -36,6 +36,7 @@ type fakeIDP struct {
 	userInfoStatus int
 	userInfoCalls  atomic.Int32
 	discovery      map[string]any
+	publicClient   bool
 	tokenError     bool
 	tokenErrorCode string
 	wrongKey       bool
@@ -90,12 +91,20 @@ func (p *fakeIDP) RoundTrip(req *http.Request) (*http.Response, error) {
 		return response(200, jose.JSONWebKeySet{Keys: []jose.JSONWebKey{key}}), nil
 	case "/token":
 		p.exchanges.Add(1)
-		id, secret, ok := req.BasicAuth()
-		if !ok || id != "teleport-client" || secret != "test-client-secret" {
-			return response(401, map[string]any{"error": "invalid_client"}), nil
-		}
 		if err := req.ParseForm(); err != nil {
 			return nil, err
+		}
+		if p.publicClient {
+			_, hasSecret := req.Form["client_secret"]
+			if req.Header.Get("Authorization") != "" || hasSecret || req.Form.Get("client_id") != "teleport-client" {
+				return response(401, map[string]any{"error": "invalid_client"}), nil
+			}
+		} else {
+			id, secret, ok := req.BasicAuth()
+			if !ok || id != "teleport-client" || secret != "test-client-secret" ||
+				req.Form.Has("client_id") || req.Form.Has("client_secret") {
+				return response(401, map[string]any{"error": "invalid_client"}), nil
+			}
 		}
 		verifier := req.Form.Get("code_verifier")
 		sum := sha256.Sum256([]byte(verifier))

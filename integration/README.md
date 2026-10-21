@@ -17,6 +17,7 @@ preserved locally under gitignored `deprecated/`.
 | `0001-register-zitadel-plugin.patch` | Register the extension at service startup |
 | `0002-display-verified-email.patch` | Expose display data without changing identity |
 | `0003-manage-zitadel-connectors.patch` | Native connector APIs, defaults, and UI |
+| `0004-allow-zitadel-public-clients.patch` | Allow an empty client secret for Zitadel resources |
 
 `patches/series` lists the application order. `upstream.commit` records the
 exact supported source commit. Changed upstream files are represented by

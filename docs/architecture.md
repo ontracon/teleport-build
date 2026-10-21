@@ -21,8 +21,8 @@ Linux archives and container images. Without a configured connector, startup
 requires no Zitadel credentials or provider connection.
 
 The overlay contains new Go/UI files. Changes to existing upstream components
-live in three patches for plugin registration, account display labels, and
-connector management. Their order is explicit in `integration/patches/series`.
+live in four patches for plugin registration, account display labels,
+connector management, and Zitadel public-client validation. Their order is explicit in `integration/patches/series`.
 See [patch maintenance](../integration/README.md) for preparing and updating a
 checkout.
 
@@ -101,8 +101,9 @@ SAML, generic enterprise OIDC, the native connector test flow, and Teleport SSO
 MFA challenge flows are not implemented.
 
 The tested real Zitadel application uses Authentication Method **None** with
-S256 PKCE. The adapter sends a Basic header and requires a nonempty secret
-locally, but Zitadel does not verify that secret for **None**. See
+S256 PKCE. An empty or omitted client secret selects this mode and sends only
+the client ID and PKCE verifier in the token request body. A supplied secret
+selects HTTP Basic client authentication alongside PKCE. See
 [application settings](configuration.md#zitadel-application).
 
 Mock browser/CLI checks and a real Zitadel login have succeeded locally. The

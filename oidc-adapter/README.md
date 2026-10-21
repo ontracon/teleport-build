@@ -53,7 +53,7 @@ See [user traits](../docs/configuration.md#user-traits) for defaults, limits,
 reserved names, and optional lookup behavior.
 
 `config.example.json` is the standalone and lab seed shape. `ReadConfig`
-requires the secret separately and rejects embedded secrets, unknown fields,
+accepts an optional secret separately and rejects embedded secrets, unknown fields,
 trailing JSON, and oversized input. Native Teleport resources supersede seed
 configuration once the integration is initialized.
 
@@ -67,10 +67,11 @@ contract to its backend.
 Issuer, callback, and discovery endpoints require HTTPS. Discovered endpoints
 must remain on the issuer origin. Redirects are refused. Requests time out
 within 15 seconds and provider response bodies are limited to 1 MiB. The client
-uses RS256 signatures and sends HTTP Basic authentication alongside S256 PKCE.
-Zitadel applications configured with Authentication Method **None** also work:
-Zitadel validates PKCE without verifying the supplied secret. Local validation
-still requires a nonempty secret, even for **None**. See
+uses RS256 signatures and S256 PKCE. An empty client secret selects
+Authentication Method **None**, sending the client ID and PKCE verifier in the
+token request body without client authentication. A supplied secret selects
+HTTP Basic authentication alongside PKCE. Token errors do not trigger a retry
+with another authentication method. See
 [application settings](../docs/configuration.md#zitadel-application).
 
 See [architecture](../docs/architecture.md) for the integration, revision

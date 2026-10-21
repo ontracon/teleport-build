@@ -29,7 +29,8 @@ spec:
   display: Zitadel
   issuer_url: "https://zitadel.example.com"
   client_id: "<client-id>"
-  client_secret: "<client-secret>"
+  # None + PKCE uses no secret. For Basic, enter the Zitadel application secret.
+  client_secret: ""
   redirect_url: "https://localhost:3080/v1/webapi/oidc/callback"
   pkce_mode: enabled
   # Optional actual account name. Omit to keep the hashed default.
@@ -72,19 +73,21 @@ The tested Zitadel application uses these settings:
 | PKCE | S256, supplied automatically by the adapter |
 | Redirect URL | `https://<teleport-proxy>/v1/webapi/oidc/callback` |
 
-HTTP Basic client authentication (`client_secret_basic`) is also supported,
-but is not required for the tested **None + PKCE** setup. The adapter currently
-sends a Basic authentication header in either case. With Authentication Method
-**None**, Zitadel uses the client ID and validates PKCE without verifying the
-supplied client secret. See
-[Zitadel client verification](https://github.com/zitadel/zitadel/blob/main/internal/api/oidc/client.go)
-and [PKCE token exchange](https://zitadel.com/docs/apis/openidoauth/endpoints#token_endpoint).
+For **None + PKCE**, omit `spec.client_secret` or set it to an empty string.
+The adapter sends the client ID and PKCE verifier in the token request body
+without a Basic authentication header or client secret.
 
-The adapter's local validation still requires a nonempty `spec.client_secret`.
-For **None**, use a locally generated nonempty value in that field. It does
-not need to be a Zitadel-issued secret. For **Basic**, use the actual
-application secret issued by Zitadel. Omitting or emptying the field is
-currently rejected by the adapter.
+HTTP Basic client authentication (`client_secret_basic`) is also supported.
+For **Basic**, set `spec.client_secret` to the actual application secret issued
+by Zitadel. The adapter then sends the credentials in a Basic authentication
+header. S256 PKCE is used in both modes. Authentication failures do not trigger
+a retry with another mode. See
+[Zitadel token exchange](https://zitadel.com/docs/apis/openidoauth/endpoints#token_endpoint).
+
+Existing connectors keep their stored secret. To switch a connector from
+Basic to None + PKCE, set the Zitadel application's Authentication Method to
+**None**, then clear `spec.client_secret` in Teleport. Start a fresh login
+after saving.
 
 The callback must match the connector exactly. Configure Zitadel to return
 project roles in the ID token or UserInfo, and assign the mapped role to the
@@ -100,9 +103,10 @@ client_secret: "<existing-secret>"
 ```
 
 Leaving the exact marker unchanged preserves the backend's secret when saving.
-Replacing it updates the stored value. New connectors require a nonempty
-value: use the actual Zitadel application secret for **Basic**, or a locally
-generated value for **None**, as described in [application settings](#zitadel-application).
+Replacing it updates the stored value. Clear or omit `client_secret` to use
+**None + PKCE**, or supply the actual Zitadel application secret for **Basic**.
+This applies to new and existing connectors. See
+[application settings](#zitadel-application).
 This behavior belongs to the custom Web API. Applying that marker through
 `tctl` does not preserve the existing credential.
 
@@ -272,8 +276,8 @@ unsupported OIDC provider settings, and unknown `zitadel/` labels are rejected.
 
 ## Bootstrap compatibility
 
-The development setup uses an ignored `adapter.json` and a separate
-`client-secret` to seed an empty cluster. Matching legacy connectors can be
+The development setup uses an ignored `adapter.json` to seed an empty cluster.
+An optional `client-secret` file supplies credentials for Basic authentication. Matching legacy connectors can be
 migrated once into native resources. Once a connector is native, the adapter
 uses its backend resource instead of the legacy files. Subsequent changes
 belong in the Web UI or native `tctl` resource. Editing bootstrap files does

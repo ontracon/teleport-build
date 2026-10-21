@@ -26,6 +26,22 @@ func testNativeZitadelConnector(t *testing.T) *types.OIDCConnectorV3 {
 	return connector
 }
 
+func TestZitadelNativePolicyWithoutSecret(t *testing.T) {
+	c := testNativeZitadelConnector(t)
+	c.SetClientSecret("")
+	require.NoError(t, c.CheckAndSetDefaults())
+	cfg, err := ZitadelConfigFromConnector(c)
+	require.NoError(t, err)
+	require.Empty(t, cfg.ClientSecret)
+
+	c.Spec.PKCEMode = "disabled"
+	_, err = ZitadelConfigFromConnector(c)
+	require.Error(t, err, "public clients must still use PKCE")
+
+	c.SetProvider("")
+	require.Error(t, c.CheckAndSetDefaults(), "other OIDC providers still require a secret")
+}
+
 func TestZitadelNativePolicy(t *testing.T) {
 	c := testNativeZitadelConnector(t)
 	c.Spec.MaxAge = &types.MaxAge{Value: types.NewDuration(10 * time.Minute)}

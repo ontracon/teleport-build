@@ -100,13 +100,14 @@ chmod 600 dev/generated-real/adapter.json
 
 Edit `adapter.json` with your issuer, client ID, project ID, receiving
 organization ID, exact role mappings, and callback
-`https://localhost:3080/v1/webapi/oidc/callback`. Create
-`dev/generated-real/client-secret` with a nonempty value and set its
-permissions to `0600`. For Authentication Method **None + PKCE**, use a locally
-generated value. Zitadel does not verify this secret. For **Basic**, use the
-actual application secret issued by Zitadel. The adapter currently requires
-the value in both cases. These files are gitignored. Configure the application
-and role grants as described in [application settings](configuration.md#zitadel-application).
+`https://localhost:3080/v1/webapi/oidc/callback`. For Authentication Method
+**None + PKCE**, no `dev/generated-real/client-secret` file is needed. The real
+lab seeds an empty secret when that file is absent. For **Basic**, create the
+file with the actual application secret issued by Zitadel and set its
+permissions to `0600`. An existing file is preserved and its contents select
+Basic authentication. These files are gitignored. Configure the application
+and role grants as described in
+[application settings](configuration.md#zitadel-application).
 
 To use readable account names, set `"username_claim": "preferred_username"`
 in the initial `adapter.json` seed, or `spec.username_claim: preferred_username`

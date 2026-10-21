@@ -51,12 +51,10 @@ To connect your Zitadel instance:
 2. Sign in to Teleport as an administrator and open **Zero Trust Access →
    Auth Connectors → New Zitadel Connector**. Fill in the issuer, client
    credentials, project ID, receiving organization ID, and exact role mapping.
-   The adapter currently requires a nonempty `client_secret` even with
-   Authentication Method **None**. See
-   [application settings](docs/configuration.md#zitadel-application) for how
-   to fill it. See [configuration](docs/configuration.md#connector-yaml) for
-   the full YAML and the alternative `tctl` setup. Mapped Teleport roles must
-   already exist.
+   Leave `client_secret` empty or omit it for Authentication Method **None**.
+   For **Basic**, enter the Zitadel application secret. See
+   [configuration](docs/configuration.md#connector-yaml) for the full YAML
+   and the alternative `tctl` setup. Mapped Teleport roles must already exist.
 3. Save the connector, use its tile menu to set it as the default if desired,
    and start a fresh login with Zitadel.
 

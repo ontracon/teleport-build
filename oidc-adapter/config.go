@@ -20,7 +20,8 @@ var (
 )
 
 // Config is trusted, server-side configuration for one Zitadel application.
-// ClientSecret must come from a secret source; never accept it from a callback.
+// An empty ClientSecret selects None + PKCE. A supplied secret selects Basic
+// authentication and must come from a trusted secret source.
 type Config struct {
 	IssuerURL      string `json:"issuer_url"`
 	ClientID       string `json:"client_id"`
@@ -69,12 +70,15 @@ func (c Config) validated() (Config, error) {
 		return c, errors.New("redirect_url cannot contain a query")
 	}
 	for name, value := range map[string]string{
-		"client_id": c.ClientID, "client_secret": c.ClientSecret,
+		"client_id":  c.ClientID,
 		"project_id": c.ProjectID, "organization_id": c.OrganizationID,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return c, fmt.Errorf("%s is required", name)
 		}
+	}
+	if c.ClientSecret != "" && strings.TrimSpace(c.ClientSecret) == "" {
+		return c, errors.New("client_secret must be empty or contain a non-whitespace value")
 	}
 	for _, id := range []string{c.ProjectID, c.OrganizationID} {
 		if !identifier(id) {

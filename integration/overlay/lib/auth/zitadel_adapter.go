@@ -76,9 +76,12 @@ func (a *Server) ConfigureZitadelAdapter(ctx context.Context) error {
 		return trace.Wrap(err, "open Zitadel adapter configuration")
 	}
 	defer file.Close()
-	secret, err := os.ReadFile(os.Getenv("TELEPORT_ZITADEL_SECRET_FILE"))
-	if err != nil {
-		return trace.Wrap(err, "read Zitadel client secret file")
+	var secret []byte
+	if path := os.Getenv("TELEPORT_ZITADEL_SECRET_FILE"); path != "" {
+		secret, err = os.ReadFile(path)
+		if err != nil {
+			return trace.Wrap(err, "read Zitadel client secret file")
+		}
 	}
 	cfg, err := zitadel.ReadConfig(file, strings.TrimSpace(string(secret)))
 	if err != nil {

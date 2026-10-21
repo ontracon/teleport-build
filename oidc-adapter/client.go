@@ -106,13 +106,19 @@ func New(ctx context.Context, cfg Config, store Store, client *http.Client) (*Cl
 		return nil, err
 	}
 	digest := sha256.Sum256(policy)
+	authStyle := oauth2.AuthStyleInHeader
+	if cfg.ClientSecret == "" {
+		// Public clients send only client_id and the PKCE verifier in the body.
+		// Pin the style so token errors cannot trigger an authentication retry.
+		authStyle = oauth2.AuthStyleInParams
+	}
 	c := &Client{
 		cfg: cfg, store: store, provider: provider, http: &guarded,
 		binding: hex.EncodeToString(digest[:]), now: time.Now,
 		oauth: oauth2.Config{
 			ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret,
 			RedirectURL: cfg.RedirectURL,
-			Endpoint:    oauth2.Endpoint{AuthURL: provider.Endpoint().AuthURL, TokenURL: provider.Endpoint().TokenURL, AuthStyle: oauth2.AuthStyleInHeader},
+			Endpoint:    oauth2.Endpoint{AuthURL: provider.Endpoint().AuthURL, TokenURL: provider.Endpoint().TokenURL, AuthStyle: authStyle},
 			Scopes: []string{oidc.ScopeOpenID, "profile", "email",
 				"urn:zitadel:iam:org:project:id:" + cfg.ProjectID + ":aud",
 				"urn:zitadel:iam:org:projects:roles"},

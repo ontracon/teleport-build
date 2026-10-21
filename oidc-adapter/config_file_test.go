@@ -30,6 +30,17 @@ func TestReadExampleConfig(t *testing.T) {
 	}
 }
 
+func TestReadConfigWithoutSecret(t *testing.T) {
+	data, err := json.Marshal(testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := ReadConfig(strings.NewReader(string(data)), "")
+	if err != nil || cfg.ClientSecret != "" {
+		t.Fatalf("None + PKCE configuration rejected: %v", err)
+	}
+}
+
 func TestReadDisplayNameClaim(t *testing.T) {
 	cfg := testConfig()
 	cfg.DisplayNameClaim = "preferred_username"

@@ -46,9 +46,10 @@ func configuredAuthDefault(ctx context.Context, client authclient.ClientI) (stri
 }
 
 func redactedZitadelConnector(connector types.OIDCConnector) types.OIDCConnector {
-	copy := connector.WithoutSecrets().(types.OIDCConnector)
+	// WithoutSecrets may return the original object when its secret is empty.
+	copy := *connector.WithoutSecrets().(*types.OIDCConnectorV3)
 	copy.SetClientSecret(zitadelHiddenSecret)
-	return copy
+	return &copy
 }
 
 func supportedAuthConnectors(ctx context.Context, client authclient.ClientI) ([]ui.ResourceItem, error) {
@@ -153,7 +154,7 @@ func (h *Handler) createZitadelConnector(w http.ResponseWriter, r *http.Request,
 	}
 	return CreateResource(r, types.KindOIDC, unmarshalZitadelConnector, func(ctx context.Context, connector types.OIDCConnector) (types.OIDCConnector, error) {
 		if connector.GetClientSecret() == zitadelHiddenSecret {
-			return nil, trace.BadParameter("a new connector requires its client secret")
+			return nil, trace.BadParameter("replace <existing-secret> with an empty value for None + PKCE or a client secret for Basic")
 		}
 		if err := validateZitadelTargetRoles(ctx, client, connector); err != nil {
 			return nil, err

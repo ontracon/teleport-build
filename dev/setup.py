@@ -40,9 +40,6 @@ def main():
     ) if Path(path).is_file()), None)
     bundle = system_roots.read_text() if system_roots else ''
     write(root / 'trust.pem', bundle.rstrip() + '\n' + (root / 'ca.pem').read_text(), mode=0o644)
-    if not (root / 'client-secret').exists():
-        write(root / 'client-secret', secrets.token_urlsafe(32) + '\n')
-    secret = (root / 'client-secret').read_text().strip()
     config = {
         'issuer_url': 'https://localhost:9443', 'client_id': 'teleport-lab',
         'redirect_url': 'https://localhost:3080/v1/webapi/oidc/callback',
@@ -55,6 +52,10 @@ def main():
     if not (root / 'adapter.json').exists():
         write(root / 'adapter.json', json.dumps(config, indent=2) + '\n')
     config = json.loads((root / 'adapter.json').read_text())
+    secret_path = root / 'client-secret'
+    if not secret_path.exists() and config['issuer_url'] == 'https://localhost:9443':
+        write(secret_path, secrets.token_urlsafe(32) + '\n')
+    secret = secret_path.read_text().strip() if secret_path.exists() else ''
     display = 'Zitadel Local Lab' if config['issuer_url'] == 'https://localhost:9443' else 'Zitadel (' + urlparse(config['issuer_url']).hostname + ')'
     write(root / 'teleport.yaml', '''version: v3
 teleport:

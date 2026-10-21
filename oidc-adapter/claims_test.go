@@ -36,7 +36,7 @@ func TestConfigOwnsMappings(t *testing.T) {
 }
 
 func TestInvalidConfig(t *testing.T) {
-	for _, name := range []string{"http issuer", "http redirect", "missing client secret", "empty mappings", "wildcard role", "missing organization", "injected project scope"} {
+	for _, name := range []string{"http issuer", "http redirect", "blank client secret", "empty mappings", "wildcard role", "missing organization", "injected project scope"} {
 		t.Run(name, func(t *testing.T) {
 			cfg := testConfig()
 			switch name {
@@ -44,8 +44,8 @@ func TestInvalidConfig(t *testing.T) {
 				cfg.IssuerURL = "http://idp.example"
 			case "http redirect":
 				cfg.RedirectURL = "http://teleport.example"
-			case "missing client secret":
-				cfg.ClientSecret = ""
+			case "blank client secret":
+				cfg.ClientSecret = " \t"
 			case "empty mappings":
 				cfg.RoleMappings = nil
 			case "wildcard role":
