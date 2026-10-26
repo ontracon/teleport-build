@@ -10,6 +10,14 @@ variable "TELEPORT_VERSION" {
   default = "18.10.0"
 }
 
+variable "SOURCE_REVISION" {
+  default = ""
+}
+
+variable "SOURCE_URL" {
+  default = "https://github.com/ontracon/teleport-build"
+}
+
 group "default" {
   targets = ["runtime", "lab"]
 }
@@ -27,7 +35,13 @@ target "common" {
 target "runtime" {
   inherits = ["common"]
   target   = "runtime"
-  tags     = ["teleport-zitadel:${TELEPORT_VERSION}"]
+  tags     = ["teleport-zitadel:${replace(TELEPORT_VERSION, "+", "-")}"]
+  labels = {
+    "org.opencontainers.image.title"    = "Teleport Community with Zitadel"
+    "org.opencontainers.image.source"   = SOURCE_URL
+    "org.opencontainers.image.revision" = SOURCE_REVISION
+    "org.opencontainers.image.version"  = TELEPORT_VERSION
+  }
 }
 
 target "lab" {

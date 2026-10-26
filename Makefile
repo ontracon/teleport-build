@@ -6,12 +6,13 @@ NPM ?= npm
 BUILD_PLATFORM ?= linux/amd64
 BUILD_JOBS ?= 2
 TELEPORT_VERSION ?= 18.10.0
+RUNTIME_IMAGE ?= teleport-zitadel:$(subst +,-,$(TELEPORT_VERSION))
 export BUILD_PLATFORM BUILD_JOBS TELEPORT_VERSION
 CONTAINER_BUILD = $(DOCKER) buildx bake --file build/docker-bake.hcl
 MOCK_COMPOSE = $(DOCKER) compose -f dev/compose.yaml
 REAL_COMPOSE = $(DOCKER) compose -f dev/compose.real.yaml
 
-.PHONY: help test test-patches prepare-source build build-test artifacts lab-build lab-image lab lab-down real-lab real-lab-down test-deps test-browser test-connectors test-cli test-real
+.PHONY: help test test-patches prepare-source build build-test artifacts release-build test-runtime lab-build lab-image lab lab-down real-lab real-lab-down test-deps test-browser test-connectors test-cli test-real
 
 help:
 	@printf '%s\n' \
@@ -21,6 +22,8 @@ help:
 	  'make build            Build the tested Teleport + Zitadel runtime image' \
 	  'make build-test       Build the verified compiler/test stage' \
 	  'make artifacts        Export all six binaries, manifest, and reports' \
+	  'make release-build    Export artifacts and load the production image together' \
+	  'make test-runtime     Smoke-test the production image and official chart contract' \
 	  'make lab-build        Build runtime and lab images together' \
 	  'make lab              Start the mock lab; build its image if missing' \
 	  'make lab-down         Stop the mock lab and retain its data' \
@@ -49,6 +52,13 @@ build-test:
 
 artifacts:
 	$(CONTAINER_BUILD) artifacts
+
+# Explicitly load only runtime; artifacts retains its local-directory exporter.
+release-build:
+	$(CONTAINER_BUILD) --set runtime.output=type=docker artifacts runtime
+
+test-runtime:
+	python3 build/test-runtime.py --image "$(RUNTIME_IMAGE)" --version "$(TELEPORT_VERSION)"
 
 lab-build:
 	$(CONTAINER_BUILD) --load runtime lab

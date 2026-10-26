@@ -110,10 +110,13 @@ Mock browser/CLI checks and a real Zitadel login have succeeded locally. The
 shared container build applies the integration before upstream `make full`,
 retaining Desktop, PAM, BPF, CGO, and the embedded session helper. The lab adds
 test tools to the same server runtime. The manual archive-release workflow
-uses the same verified build for its patched Linux artifacts and keeps native
-Windows/macOS client builds.
+uses the same verified build for its patched Linux artifacts and production
+container, and keeps native Windows/macOS client builds. The production target
+matches the official image's launch/shutdown contract while the lab keeps its
+existing startup behavior. Container smoke tests validate the matching chart's
+configuration and flag-only startup before GHCR publication.
 
-Release publishing, role-removal behavior over session/certificate lifetimes,
-locks and audit acceptance, logout propagation, multi-replica operation, and
-upgrades remain acceptance work. Runtime images contain executables and shared
+Kubernetes deployment and registry-pull acceptance, role-removal behavior over
+session/certificate lifetimes, locks and audit acceptance, logout propagation,
+multi-replica operation, and upgrades remain acceptance work. Runtime images contain executables and shared
 runtime libraries. Compiler toolchains and source remain in build stages.

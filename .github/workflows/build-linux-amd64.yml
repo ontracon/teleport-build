@@ -89,6 +89,8 @@ jobs:
       TELEPORT_COMMIT: ${{ needs.prepare.outputs.commit }}
       BUILD_JOBS: ${{ inputs.build_jobs || '2' }}
       BUILD_PLATFORM: linux/amd64
+      SOURCE_REVISION: ${{ github.sha }}
+      SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
     defaults:
       run:
         shell: bash
@@ -122,8 +124,18 @@ jobs:
             *) echo 'A Linux amd64 Docker engine is required.' >&2; exit 1 ;;
           esac
 
-      - name: Build patched binaries, verify integration, and export artifacts
-        run: make artifacts
+      - name: Build verified artifacts and production image together
+        run: make release-build
+
+      - name: Install Helm for the production image smoke test
+        uses: azure/setup-helm@v5.0.1
+        with:
+          version: v3.18.6
+
+      - name: Test production entrypoint and official chart compatibility
+        run: |
+          mkdir -p tests/build/test-results
+          make test-runtime 2>&1 | tee tests/build/test-results/runtime-smoke.log
 
       - name: Report Linux build storage
         if: always()
@@ -144,6 +156,7 @@ jobs:
           path: |
             dist/linux-amd64/test-results/
             tests/build/test-results/host-disk-usage.txt
+            tests/build/test-results/runtime-smoke.log
           if-no-files-found: ignore
           retention-days: 14
 
@@ -159,6 +172,25 @@ jobs:
           cd ..
           sha256sum "${archive}" > "${archive}.sha256"
           echo "archive=${archive}" >> "$GITHUB_OUTPUT"
+
+      - name: Save the tested production image for publication
+        run: |
+          image="teleport-zitadel:${TELEPORT_VERSION//+/-}"
+          docker image inspect --format '{{.Id}}' "$image" > dist/runtime-image-id.txt
+          docker save "$image" | gzip -1 > dist/teleport-runtime-linux-amd64.tar.gz
+          (cd dist && sha256sum teleport-runtime-linux-amd64.tar.gz > teleport-runtime-linux-amd64.tar.gz.sha256)
+
+      - name: Upload tested production image
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: teleport-runtime-linux-amd64
+          path: |
+            dist/teleport-runtime-linux-amd64.tar.gz
+            dist/teleport-runtime-linux-amd64.tar.gz.sha256
+            dist/runtime-image-id.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
 
       - name: Upload tested build
         uses: actions/upload-artifact@v7.0.2
@@ -286,7 +318,7 @@ jobs:
           retention-days: 14
 
   release:
-    name: Publish all tested release assets
+    name: Publish tested image and release assets
     needs: [prepare, build, tsh]
     runs-on: ${{ fromJSON(inputs.runner) }}
     defaults:
@@ -294,12 +326,18 @@ jobs:
         shell: bash
     permissions:
       contents: write
+      packages: write
     env:
       TELEPORT_TAG: ${{ inputs.tag }}
       TELEPORT_VERSION: ${{ needs.prepare.outputs.version }}
       TELEPORT_COMMIT: ${{ needs.prepare.outputs.commit }}
       RELEASE_BUILD: ${{ github.run_number }}.${{ github.run_attempt }}
     steps:
+      - name: Check out image publication helper
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Ensure GitHub CLI is available
         run: |
           if ! command -v gh >/dev/null 2>&1; then
@@ -320,11 +358,35 @@ jobs:
           merge-multiple: true
           path: dist
 
+      - name: Download the tested production image
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: teleport-runtime-linux-amd64
+          path: dist/runtime
+
+      - name: Publish the tested production image to GHCR
+        id: image
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          (cd dist/runtime && sha256sum --check teleport-runtime-linux-amd64.tar.gz.sha256)
+          docker load --input dist/runtime/teleport-runtime-linux-amd64.tar.gz
+          RUNTIME_IMAGE_ID="$(< dist/runtime/runtime-image-id.txt)"
+          export RUNTIME_IMAGE_ID
+          # Do not leave registry credentials on a persistent release runner.
+          DOCKER_CONFIG="$(mktemp -d "$RUNNER_TEMP/teleport-ghcr.XXXXXX")"
+          export DOCKER_CONFIG
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          bash build/publish-runtime.sh
+
       - name: Create release and upload tested artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ARCHIVE: teleport-${{ needs.prepare.outputs.version }}-linux-amd64.tar.gz
+          CONTAINER_IMAGE: ${{ steps.image.outputs.image }}
+          CONTAINER_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           test -f "dist/$ARCHIVE"
           (cd dist && sha256sum --check "$ARCHIVE.sha256")
@@ -351,6 +413,14 @@ jobs:
           print(f"Release build: `{os.environ['RELEASE_BUILD']}`.")
           print("\nIncludes all six binaries, embedded Web UI with Zitadel connector management and configurable account labels, LICENSE, manifest with integration source hashes, binary checksums, and passing upstream test reports. The shared build also runs adapter, Auth/Proxy bridge, and account-label tests. FIDO2 is disabled; PAM, BPF, and Rust Desktop support are included.")
           print("\nZitadel support is enabled by default in the Linux server. Configure a native Zitadel OIDC connector to use it.")
+          image = os.environ['CONTAINER_IMAGE']
+          digest = os.environ['CONTAINER_DIGEST']
+          repository, image_tag = image.rsplit(':', 1)
+          print(f"\nProduction container (linux/amd64): `{image}`.")
+          print(f"\nImage digest: `{repository}@{digest}`.")
+          print("\nUse the official teleport-cluster chart matching the upstream Teleport version, with these values:")
+          print(f'\n```yaml\nenterprise: false\nimage: {repository}\nteleportVersionOverride: "{image_tag}"\n```')
+          print("\nThe production image follows the official image entrypoint and shutdown contract. Private GHCR packages require imagePullSecrets in the deployment namespace. The development lab image is not published.")
           print("\nSeparate tsh archives are included for Windows amd64 and macOS arm64/amd64. Clients are built natively with CGO, Rust RDP decoding, and PIV; macOS includes Touch ID. FIDO2 remains disabled. Each client passes executable header/build metadata checks and native version/help checks. Distribution signing and notarization are not configured.")
           print("\nLinux binaries are compiled in Debian Bookworm and require compatible runtime libraries. Verify each archive checksum before extracting.")
           PY

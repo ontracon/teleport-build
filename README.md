@@ -83,7 +83,7 @@ For a local test against your own endpoint, follow
 | `make build` | Debian slim runtime with patched Teleport, Web UI, and Zitadel |
 | `make lab-build` | Both runtime and lab images. The lab adds setup, CLI tools, and mock IdP |
 | `make artifacts` | All six compiled binaries, manifest, checksums, and reports |
-| Manual release workflow | Patched Linux archives with Zitadel and native Windows/macOS clients |
+| Manual release workflow | Patched Linux archives, a Helm-compatible GHCR server image, and native Windows/macOS clients |
 
 Container builds and Linux release archives use the same verified Zitadel
 integration build. Supported features and remaining acceptance work are documented in
@@ -95,6 +95,7 @@ integration build. Supported features and remaining acceptance work are document
   secret editing, and authentication defaults.
 - [Development](docs/development.md): mock and real labs, tests, and diagnostics.
 - [Building](docs/building.md): pinned toolchains, artifacts, and release CI.
+- [Production containers](docs/containers.md): GHCR publication, official Helm chart values, and smoke tests.
 - [Architecture](docs/architecture.md): extension hooks, identity, transactions,
   and supported scope.
 

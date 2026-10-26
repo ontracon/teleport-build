@@ -139,3 +139,13 @@ FROM scratch AS artifacts
 COPY --from=verified /out/ /
 
 FROM runtime-base AS runtime
+# The official chart replaces CMD with flags, so the full server invocation
+# must be in ENTRYPOINT. Keep this production-only: the lab passes "start" itself.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends dumb-init \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /etc/teleport
+ENV TELEPORT_TOOLS_VERSION=off
+STOPSIGNAL SIGQUIT
+ENTRYPOINT ["/usr/bin/dumb-init", "/usr/local/bin/teleport", "start", "-c", "/etc/teleport/teleport.yaml"]
+CMD []

@@ -67,7 +67,9 @@ class ReleasePublicationTests(unittest.TestCase):
                    ARCHIVE=names[0], TELEPORT_TAG=f'v{version}',
                    TELEPORT_VERSION=version, TELEPORT_COMMIT='a' * 40,
                    GITHUB_SHA='b' * 40, RELEASE_BUILD=build,
-                   RUNNER_TEMP=str(self.root))
+                   RUNNER_TEMP=str(self.root),
+                   CONTAINER_IMAGE=f'ghcr.io/ontracon/teleport-build:{version.replace("+", "-")}-build.{build}',
+                   CONTAINER_DIGEST='sha256:' + 'c' * 64)
         result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', PUBLISH_STEP],
                                 cwd=self.root, env=env, capture_output=True, text=True)
         return result, self.root / 'releases' / f'v{version}-build.{build}'
@@ -85,7 +87,12 @@ class ReleasePublicationTests(unittest.TestCase):
         args = json.loads((release / 'arguments.json').read_text())
         self.assertEqual(args[args.index('--target') + 1], 'b' * 40)
         self.assertTrue(args[args.index('--title') + 1].endswith(f'(build {build})'))
-        self.assertIn(f'Release build: `{build}`.', (release / 'notes.md').read_text())
+        notes = (release / 'notes.md').read_text()
+        self.assertIn(f'Release build: `{build}`.', notes)
+        self.assertIn('ghcr.io/ontracon/teleport-build@sha256:' + 'c' * 64, notes)
+        self.assertIn('image: ghcr.io/ontracon/teleport-build', notes)
+        self.assertIn(f'-build.{build}"', notes)
+        self.assertNotIn('\\\\"', notes)
 
     def test_repeated_version_preserves_previous_release(self):
         result, first = self.publish()

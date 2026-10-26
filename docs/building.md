@@ -21,12 +21,15 @@ make build
 This builds `teleport-zitadel:18.10.0`. It contains the patched server, embedded
 Web UI, `tctl`, the descriptor helper, required runtime libraries, license, and
 build manifest. Source, compilers, Node.js, Rust, and JavaScript dependencies
-remain in build stages. The entrypoint is `/usr/local/bin/teleport`. The default
-command is `start --config=/etc/teleport.yaml`.
+remain in build stages. The production entrypoint matches the official image:
+`dumb-init /usr/local/bin/teleport start -c /etc/teleport/teleport.yaml`.
+It accepts flag-only arguments from the official chart and uses `SIGQUIT` for
+graceful shutdown.
 
-Mount the server configuration at `/etc/teleport.yaml` and persist its configured
-data directory, normally `/var/lib/teleport`. The built-in Zitadel integration
-is enabled. Connector settings are [native resources](configuration.md).
+Mount the server configuration at `/etc/teleport/teleport.yaml` and persist its
+configured data directory, normally `/var/lib/teleport`. The built-in Zitadel
+integration is enabled. Connector settings are [native resources](configuration.md).
+See [production containers](containers.md) for GHCR publication and Helm values.
 
 ## Lab image
 
@@ -40,8 +43,10 @@ sharing compilation and verification even if Docker would evict intermediate
 stages between separate builds. The target definitions live in
 [`build/docker-bake.hcl`](../build/docker-bake.hcl).
 
-`teleport-zitadel-lab:18.10.0` extends the same runtime with `tsh`, the mock IdP,
-Python, OpenSSL, curl, and local setup/check scripts. The mock and real Compose
+`teleport-zitadel-lab:18.10.0` extends the shared runtime base with `tsh`, the mock
+IdP, Python, OpenSSL, curl, and local setup/check scripts. It retains its original
+bare `teleport` entrypoint and explicit `start` commands; production-only launch
+settings do not change the lab. The mock and real Compose
 environments use this target. `make lab` and `make real-lab` reuse an existing
 image for the selected version and platform, building it when missing. Run
 `make lab-build` after source changes. Startup does not compile an unmodified
@@ -70,8 +75,9 @@ flowchart LR
   A["Pinned source and toolchains"] --> B["Cached dependencies"]
   B --> C["Apply integration"]
   C --> D["Compile and verify"]
-  D --> E["Runtime image"]
-  E --> F["Lab image"]
+  D --> E["Runtime base"]
+  E --> F["Lab image: existing startup"]
+  E --> H["Production image: official launch contract"]
   D --> G["Binary artifacts"]
 ```
 
@@ -145,17 +151,22 @@ runtime ABI. The container supplies matching libraries.
 ## Release CI
 
 [Build Teleport and tsh clients](../.github/workflows/build-linux-amd64.yml)
-is manually dispatched. Its Linux job runs `make artifacts`, using the same
-Debian toolchains, source preparation, patched Web UI, and verification stage
-as local container builds. Windows amd64 and macOS arm64/amd64 `tsh` clients
-continue to build natively against the same upstream commit.
+is manually dispatched. Its Linux job runs `make release-build`, exporting the
+binary artifacts and loading the production image in one Bake graph using the
+same Debian toolchains, source preparation, patched Web UI, and verification
+stage as local container builds. It then runs `make test-runtime` against the
+production image and matching official chart. Windows amd64 and macOS arm64/amd64
+`tsh` clients continue to build natively against the same upstream commit.
 
 The requested tag must resolve to `integration/upstream.commit`. Unsupported
 tags fail before build jobs start. Before packaging, the release verifier
 checks the version, commit, platform, all six binary hashes, passing test marker,
 and every recorded integration hash against the current adapter and patches.
-The workflow publishes archives and checksums only after Linux and all native
-client jobs succeed.
+The workflow publishes the tested production image to GHCR and creates the
+GitHub release with archives and checksums only after Linux and all native client
+jobs succeed. The release job loads the tested image archive rather than rebuilding
+it; it verifies the image ID, source/version labels, and platform before pushing.
+The release notes record its numbered image tag and registry digest.
 
 Each publication creates a numbered release, such as
 `v18.10.0-build.42.1`, with a title ending in `(build 42.1)`. The numbers are
@@ -180,15 +191,18 @@ only on GitHub-hosted runners. After the build, filesystem and Docker cache
 usage are uploaded with the test reports, including when verification fails.
 
 The Linux runner needs Make, Python 3, Docker access, and Buildx Bake with a
-Linux amd64 Docker engine. Compilers and native development packages are
-provided by the Docker build. Persistent BuildKit caches on a self-hosted
+Linux amd64 Docker engine. CI installs Helm for the production smoke test.
+The release runner also needs Docker and Python 3; `packages: write` on its
+GitHub token permits GHCR publication. Compilers and native development packages
+are provided by the Docker build. Persistent BuildKit caches on a self-hosted
 runner can be reused across releases. Exported upstream reports come from
 `dist/linux-amd64/test-results/`. Focused integration test results also appear
 in the build log. A failed verification stage does not export artifacts.
 
 Zitadel support is enabled by default in both Linux archives and container
-images. Configure a [native connector](configuration.md) to use it. Container
-registry publication is separate from archive release publishing.
+images. Configure a [native connector](configuration.md) to use it. See
+[production containers](containers.md) for registry permissions, private pulls,
+chart version alignment, and the deployment handoff.
 
 [Adapter CI](../.github/workflows/test-oidc-adapter.yml) runs standalone race
 tests and vet. [Patch CI](../.github/workflows/check-teleport-patches.yml)

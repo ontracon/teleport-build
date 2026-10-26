@@ -5,15 +5,19 @@ on:
     paths:
       - 'integration/**'
       - 'oidc-adapter/**'
-      - 'build/prepare-teleport-source.sh'
+      - 'build/**'
+      - 'Makefile'
       - 'tests/build/**'
+      - '.github/workflows/build-linux-amd64.yml'
       - '.github/workflows/check-teleport-patches.yml'
   pull_request:
     paths:
       - 'integration/**'
       - 'oidc-adapter/**'
-      - 'build/prepare-teleport-source.sh'
+      - 'build/**'
+      - 'Makefile'
       - 'tests/build/**'
+      - '.github/workflows/build-linux-amd64.yml'
       - '.github/workflows/check-teleport-patches.yml'
   workflow_dispatch:
 
@@ -28,6 +32,8 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - name: Test build, lab, and publication guards
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/build -p 'test_*.py' -v
       - name: Read supported upstream commit
         id: upstream
         run: |
