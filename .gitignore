@@ -13,3 +13,4 @@ node_modules/
 /dev/generated-real/
 /tests/integration/test-results/
 /tests/build/test-results/
+/dev/mirror-lab/generated/

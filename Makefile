@@ -7,12 +7,12 @@ BUILD_PLATFORM ?= linux/amd64
 BUILD_JOBS ?= 2
 TELEPORT_VERSION ?= 18.10.0
 RUNTIME_IMAGE ?= teleport-zitadel:$(subst +,-,$(TELEPORT_VERSION))
-export BUILD_PLATFORM BUILD_JOBS TELEPORT_VERSION
+export BUILD_PLATFORM BUILD_JOBS TELEPORT_VERSION TELEPORT_BUILD_NUMBER
 CONTAINER_BUILD = $(DOCKER) buildx bake --file build/docker-bake.hcl
 MOCK_COMPOSE = $(DOCKER) compose -f dev/compose.yaml
 REAL_COMPOSE = $(DOCKER) compose -f dev/compose.real.yaml
 
-.PHONY: help test test-patches prepare-source build build-test artifacts release-build test-runtime lab-build lab-image lab lab-down real-lab real-lab-down test-deps test-browser test-connectors test-cli test-real
+.PHONY: help test test-patches prepare-source build build-test artifacts release-build test-runtime lab-build lab-image lab lab-down real-lab real-lab-down test-deps test-browser test-connectors test-cli test-real mirror-lab-build mirror-lab-up mirror-lab-test mirror-lab-down
 
 help:
 	@printf '%s\n' \
@@ -33,7 +33,24 @@ help:
 	  'make test-browser     Test browser login against the running mock lab' \
 	  'make test-connectors  Test connector management against the mock lab' \
 	  'make test-cli         Test tsh login and SSH against the mock lab' \
-	  'make test-real        Check the real Zitadel login handoff'
+	  'make test-real        Check the real Zitadel login handoff' \
+	  'make mirror-lab-build Build two verified versions for the local mirror' \
+	  'make mirror-lab-up    Start the local Teleport and HTTPS mirror lab' \
+	  'make mirror-lab-test  Exercise mirror enrollment and managed updates' \
+	  'make mirror-lab-down  Stop the local mirror lab and retain its data'
+
+mirror-lab-build:
+	bash dev/mirror-lab/build.sh
+
+mirror-lab-up:
+	python3 dev/mirror-lab/setup.py
+	docker compose -f dev/mirror-lab/compose.yaml up -d --build
+
+mirror-lab-test:
+	python3 dev/mirror-lab/test.py
+
+mirror-lab-down:
+	docker compose -f dev/mirror-lab/compose.yaml down
 
 test:
 	cd oidc-adapter && $(GO) test -race -count=1 ./... && $(GO) vet ./...
@@ -58,7 +75,7 @@ release-build:
 	$(CONTAINER_BUILD) --set runtime.output=type=docker artifacts runtime
 
 test-runtime:
-	python3 build/test-runtime.py --image "$(RUNTIME_IMAGE)" --version "$(TELEPORT_VERSION)"
+	python3 build/test-runtime.py --image "$(RUNTIME_IMAGE)" --version "$(TELEPORT_VERSION)" $(if $(TELEPORT_BUILD_NUMBER),--binary-version "$(TELEPORT_VERSION)-$(TELEPORT_BUILD_NUMBER)",)
 
 lab-build:
 	$(CONTAINER_BUILD) --load runtime lab

@@ -34,7 +34,7 @@ class ImagePublicationTests(unittest.TestCase):
                         '{{index .Config.Labels "org.opencontainers.image.revision"}}':
                             os.environ.get('ACTUAL_REVISION', 'b' * 40),
                         '{{index .Config.Labels "org.opencontainers.image.version"}}':
-                            os.environ.get('ACTUAL_VERSION', os.environ['TELEPORT_VERSION']),
+                            os.environ.get('ACTUAL_VERSION', os.environ['TELEPORT_VERSION'] + '-' + os.environ['RELEASE_BUILD']),
                         '{{.Os}}/{{.Architecture}}': os.environ.get('ACTUAL_PLATFORM', 'linux/amd64'),
                     }[args[3]]
                     print(value)
@@ -65,12 +65,12 @@ class ImagePublicationTests(unittest.TestCase):
             return result, commands, outputs
 
     def test_workflow_transports_the_smoke_tested_image_before_publication(self):
-        workflow = (ROOT / '.github/workflows/build-linux-amd64.yml').read_text()
+        workflow = (ROOT / '.github/workflows/release-teleport.yml').read_text()
         build = workflow.split('\n  build:\n', 1)[1].split('\n  tsh:\n', 1)[0]
         release = workflow.split('\n  release:\n', 1)[1]
         self.assertIn('run: make release-build', build)
         self.assertLess(build.index('make test-runtime'), build.index('docker save'))
-        self.assertIn('needs: [prepare, build, tsh]', release)
+        self.assertIn('needs: [prepare, build, tsh, macos_mirror]', release)
         self.assertIn('packages: write', release)
         self.assertIn('sha256sum --check teleport-runtime-linux-amd64.tar.gz.sha256', release)
         self.assertLess(release.index('docker load'), release.index('bash build/publish-runtime.sh'))
@@ -80,7 +80,7 @@ class ImagePublicationTests(unittest.TestCase):
     def test_publishes_tested_image_with_numbered_tag_and_digest(self):
         result, commands, outputs = self.publish()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        image = 'ghcr.io/ontracon/teleport-build:18.10.0-build.42.1'
+        image = 'ghcr.io/ontracon/teleport-build:18.10.0-42.1'
         self.assertEqual(outputs, dict(image=image, digest=DIGEST))
         self.assertIn(['tag', 'teleport-zitadel:18.10.0', image], commands)
         self.assertIn(['push', image], commands)
@@ -91,7 +91,7 @@ class ImagePublicationTests(unittest.TestCase):
             with self.subTest(version=version):
                 result, commands, outputs = self.publish(TELEPORT_VERSION=version)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertTrue(outputs['image'].endswith(version.replace('+', '-') + '-build.42.1'))
+                self.assertTrue(outputs['image'].endswith(version.replace('+', '-') + '-42.1'))
                 self.assertIn(['push', outputs['image']], commands)
 
     def test_wrong_image_cannot_be_published(self):

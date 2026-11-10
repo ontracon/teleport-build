@@ -56,7 +56,11 @@ def main():
     if target_os == 'windows':
         generate_windows_version(os.environ['TELEPORT_VERSION'])
     else:
-        run('make', '--no-print-directory', 'version', f'OS={target_os}', f'ARCH={target_arch}', 'FIDO2=off')
+        run('make', '--no-print-directory', 'version', f'OS={target_os}', f'ARCH={target_arch}',
+            f"VERSION={os.environ['TELEPORT_VERSION']}", 'FIDO2=off')
+        # The version target may be up to date in a fresh checkout even when
+        # its requested version differs; explicitly regenerate Go metadata.
+        generate_windows_version(os.environ['TELEPORT_VERSION'])
     directory = Path(os.environ['CLIENT_OUT_DIR']) / f'{target_os}-{target_arch}'
     (directory / 'bin').mkdir(parents=True, exist_ok=True)
 
@@ -69,15 +73,35 @@ def main():
             '-trimpath', '-buildvcs=false', '-ldflags',
             f'-w -s -X k8s.io/component-base/version.gitVersion={kubectl_version} -extldflags=-static',
             '-o', str(binary), './tool/tsh')
+        run('go', 'build', '-tags', 'piv,kustomize_disable_go_plugin_support',
+            '-trimpath', '-buildvcs=false', '-ldflags',
+            f'-w -s -X k8s.io/component-base/version.gitVersion={kubectl_version} -extldflags=-static',
+            '-o', str(directory / 'bin/tctl.exe'), './tool/tctl')
     elif target_os == 'darwin':
         # Upstream supplies the macOS deployment target, CGO and Rust link flags.
         run('make', '--no-print-directory', 'build/tsh', f'OS={target_os}', f'ARCH={target_arch}',
+            f"VERSION={os.environ['TELEPORT_VERSION']}",
             'FIDO2=off', 'PIV=dynamic', 'TOUCHID=yes', 'RDPCLIENT_SKIP_BUILD=0')
         binary = directory / 'bin/tsh'
         shutil.copy2('build/tsh', binary)
+        run('make', '--no-print-directory', 'build/tctl', f'OS={target_os}', f'ARCH={target_arch}',
+            f"VERSION={os.environ['TELEPORT_VERSION']}", 'FIDO2=off', 'PIV=dynamic', 'TOUCHID=yes')
+        shutil.copy2('build/tctl', directory / 'bin/tctl')
+        # macOS hosts can also enroll a Teleport agent. Build the upstream
+        # daemon and bot with minimal web assets; these are host binaries,
+        # not a replacement for the Linux Auth/Proxy image.
+        run('make', '--no-print-directory', 'build/teleport', 'build/tbot', 'build/fdpass-teleport',
+            f'OS={target_os}', f'ARCH={target_arch}', f"VERSION={os.environ['TELEPORT_VERSION']}",
+            'FIDO2=off', 'PIV=dynamic', 'WEBASSETS_SKIP_BUILD=1', 'RDPCLIENT_SKIP_BUILD=1')
+        for name in ('teleport', 'tbot', 'fdpass-teleport'):
+            shutil.copy2('build/' + name, directory / 'bin' / name)
     else:
         raise RuntimeError(f'Unsupported native client OS: {target_os}')
     binary.chmod(0o755)
+    (directory / 'bin' / ('tctl.exe' if target_os == 'windows' else 'tctl')).chmod(0o755)
+    if target_os == 'darwin':
+        for name in ('teleport', 'tbot', 'fdpass-teleport'):
+            (directory / 'bin' / name).chmod(0o755)
     run(sys.executable, str(script_dir / 'verify-tsh-clients.py'))
 
 

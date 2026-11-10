@@ -15,7 +15,7 @@ def output(*command):
 def main():
     root = Path(os.environ.get('OUT_DIR', '/out'))
     binaries = root / 'bin'
-    version = os.environ.get('TELEPORT_VERSION', '18.10.0')
+    version = os.environ.get('TELEPORT_DISTRIBUTION_VERSION', os.environ.get('TELEPORT_VERSION', '18.10.0'))
     commit = os.environ.get('TELEPORT_COMMIT', 'ddaa46b8f4ee579d43480cd2d3b6a14b18e3ef7d')
     if output('git', 'rev-parse', 'HEAD') != commit:
         raise RuntimeError(f'The checked out source does not match the selected v{version} commit')
@@ -54,6 +54,7 @@ def main():
 
     manifest = {
         'teleport_version': version,
+        'upstream_version': os.environ.get('TELEPORT_VERSION', version),
         'source_commit': commit,
         'os': output('go', 'env', 'GOOS'),
         'architecture': output('go', 'env', 'GOARCH'),

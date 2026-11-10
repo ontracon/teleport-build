@@ -15,7 +15,7 @@ repository="ghcr.io/$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower
   echo 'Invalid GHCR repository' >&2; exit 1;
 }
 # OCI tags cannot contain '+'. Keep the run/attempt suffix unique in either case.
-tag="${TELEPORT_VERSION//+/-}-build.${RELEASE_BUILD}"
+tag="${TELEPORT_VERSION//+/-}-${RELEASE_BUILD}"
 [[ "$tag" =~ ^[0-9][a-zA-Z0-9_.-]{0,127}$ ]] || { echo 'Invalid image tag' >&2; exit 1; }
 local_image="teleport-zitadel:${TELEPORT_VERSION//+/-}"
 image="${repository}:${tag}"
@@ -25,7 +25,7 @@ actual_id="$(docker image inspect --format '{{.Id}}' "$local_image")"
 revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$local_image")"
 [[ "$revision" == "$GITHUB_SHA" ]] || { echo 'Image source revision does not match release' >&2; exit 1; }
 version="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$local_image")"
-[[ "$version" == "$TELEPORT_VERSION" ]] || { echo 'Image version does not match release' >&2; exit 1; }
+[[ "$version" == "${TELEPORT_VERSION}-${RELEASE_BUILD}" ]] || { echo 'Image version does not match release' >&2; exit 1; }
 platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$local_image")"
 [[ "$platform" == linux/amd64 ]] || { echo 'Expected a tested Linux amd64 image' >&2; exit 1; }
 

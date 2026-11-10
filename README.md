@@ -96,6 +96,7 @@ integration build. Supported features and remaining acceptance work are document
 - [Development](docs/development.md): mock and real labs, tests, and diagnostics.
 - [Building](docs/building.md): pinned toolchains, artifacts, and release CI.
 - [Production containers](docs/containers.md): GHCR publication, official Helm chart values, and smoke tests.
+- [CDN mirror configuration](docs/cdn-configuration.md): Helm, Docker, and managed agent updates.
 - [Architecture](docs/architecture.md): extension hooks, identity, transactions,
   and supported scope.
 

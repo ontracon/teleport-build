@@ -50,5 +50,8 @@ def verify(root, repo, version, commit):
 
 
 if __name__ == '__main__':
+    distribution_version = os.environ['TELEPORT_VERSION']
+    if os.environ.get('TELEPORT_BUILD_NUMBER'):
+        distribution_version += '-' + os.environ['TELEPORT_BUILD_NUMBER']
     print(verify(Path(sys.argv[1]), Path(__file__).resolve().parent.parent,
-                 os.environ['TELEPORT_VERSION'], os.environ['TELEPORT_COMMIT']))
+                 distribution_version, os.environ['TELEPORT_COMMIT']))

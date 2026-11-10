@@ -1,0 +1,245 @@
+diff --git a/lib/auth/grpcserver.go b/lib/auth/grpcserver.go
+index df0481096e..cdc8e71326 100644
+--- a/lib/auth/grpcserver.go
++++ b/lib/auth/grpcserver.go
+@@ -28,6 +28,7 @@ import (
+ 	"log/slog"
+ 	"math"
+ 	"net"
++	"os"
+ 	goslices "slices"
+ 	"strings"
+ 	"time"
+@@ -5304,6 +5305,9 @@ func (g *GRPCServer) DeleteUIConfig(ctx context.Context, _ *emptypb.Empty) (*emp
+ }
+ 
+ func (g *GRPCServer) defaultInstaller(ctx context.Context) (*types.InstallerV1, error) {
++	if os.Getenv("TELEPORT_CDN_BASE_URL") != "" {
++		return installer.NewDefaultInstaller, nil
++	}
+ 	_, err := g.AuthServer.GetAutoUpdateAgentRollout(ctx)
+ 	switch {
+ 	case trace.IsNotFound(err):
+diff --git a/lib/web/scripts.go b/lib/web/scripts.go
+index 0f64bc6da8..bc49973087 100644
+--- a/lib/web/scripts.go
++++ b/lib/web/scripts.go
+@@ -134,6 +134,7 @@ func (h *Handler) installScriptOptions(ctx context.Context) (scripts.InstallScri
+ 
+ 	return scripts.InstallScriptOptions{
+ 		AutoupdateStyle: autoupdateStyle,
++		MirrorMode:      os.Getenv(EnvVarCDNBaseURL) != "",
+ 		TeleportVersion: version,
+ 		CDNBaseURL:      cdnBaseURL,
+ 		ProxyAddr:       h.PublicProxyAddr(),
+@@ -153,6 +154,9 @@ const EnvVarCDNBaseURL = "TELEPORT_CDN_BASE_URL"
+ func getCDNBaseURL(version *semver.Version) (string, error) {
+ 	// If the user explicitly overrides the CDN base URL, we use it.
+ 	if override := os.Getenv(EnvVarCDNBaseURL); override != "" {
++		if err := scripts.ValidateMirrorURL(override); err != nil {
++			return "", trace.Wrap(err)
++		}
+ 		return override, nil
+ 	}
+ 
+diff --git a/lib/web/scripts/install.go b/lib/web/scripts/install.go
+index 1c981e52a6..adc21e4d9d 100644
+--- a/lib/web/scripts/install.go
++++ b/lib/web/scripts/install.go
+@@ -69,6 +69,8 @@ func (style AutoupdateStyle) String() string {
+ 
+ // InstallScriptOptions contains the Teleport installation options used to generate installation scripts.
+ type InstallScriptOptions struct {
++	// MirrorMode directs every installer branch to the configured CDN.
++	MirrorMode      bool
+ 	AutoupdateStyle AutoupdateStyle
+ 	// TeleportVersion that should be installed. Without the leading "v".
+ 	TeleportVersion *semver.Version
+@@ -97,6 +99,16 @@ type InstallScriptOptions struct {
+ 	Group string
+ }
+ 
++// ValidateMirrorURL rejects URLs that could change script meaning or leak credentials.
++func ValidateMirrorURL(raw string) error {
++	valid := regexp.MustCompile(`^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._/-]*)?$`)
++	parsed, err := url.Parse(raw)
++	if err != nil || !valid.MatchString(raw) || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
++		return trace.BadParameter("mirror base URL must be HTTPS without credentials, query, fragment or shell metacharacters")
++	}
++	return nil
++}
++
+ // Check validates that the minimal options are set.
+ func (o *InstallScriptOptions) Check() error {
+ 	switch o.AutoupdateStyle {
+@@ -150,6 +162,7 @@ func (o *InstallScriptOptions) oneOffParams() (params oneoff.OneOffScriptParams)
+ 	}
+ 
+ 	return oneoff.OneOffScriptParams{
++		VerifyChecksum:  o.MirrorMode,
+ 		Entrypoint:      "teleport-update",
+ 		EntrypointArgs:  strings.Join(args, " "),
+ 		CDNBaseURL:      o.CDNBaseURL,
+@@ -164,6 +177,11 @@ func (o *InstallScriptOptions) oneOffParams() (params oneoff.OneOffScriptParams)
+ // This script only installs Teleport, it does not start the agent, join it, nor configure its services.
+ // See the InstallNodeBashScript if you need a more complete setup.
+ func GetInstallScript(ctx context.Context, opts InstallScriptOptions) (string, error) {
++	if opts.MirrorMode {
++		if err := ValidateMirrorURL(opts.CDNBaseURL); err != nil {
++			return "", trace.Wrap(err)
++		}
++	}
+ 	switch opts.AutoupdateStyle {
+ 	case NoAutoupdate, PackageManagerAutoupdate:
+ 		return getLegacyInstallScript(ctx, opts)
+@@ -189,6 +207,12 @@ var (
+ // installation script served by getUpdaterInstallScript.
+ func getLegacyInstallScript(ctx context.Context, opts InstallScriptOptions) (string, error) {
+ 	tunedScript := versionVar.ReplaceAllString(legacyInstallScript, fmt.Sprintf(`TELEPORT_VERSION="%s"`, opts.TeleportVersion))
++	if opts.MirrorMode {
++		if err := ValidateMirrorURL(opts.CDNBaseURL); err != nil {
++			return "", trace.Wrap(err)
++		}
++		tunedScript = strings.Replace(tunedScript, `TELEPORT_MIRROR_URL=""`, "TELEPORT_MIRROR_URL="+shsprintf.EscapeDefaultContext(strings.TrimRight(opts.CDNBaseURL, "/")), 1)
++	}
+ 	if opts.TeleportFlavor == types.PackageNameEnt {
+ 		tunedScript = suffixVar.ReplaceAllString(tunedScript, `TELEPORT_SUFFIX="-ent"`)
+ 	}
+diff --git a/lib/web/scripts/install/install.sh b/lib/web/scripts/install/install.sh
+index 71d9d3f709..692c1bbd51 100755
+--- a/lib/web/scripts/install/install.sh
++++ b/lib/web/scripts/install/install.sh
+@@ -13,6 +13,8 @@
+ 
+ set -euo pipefail
+ 
++TELEPORT_MIRROR_URL=""
++
+ # download uses curl or wget to download a teleport binary
+ download() {
+   URL=$1
+@@ -213,7 +215,7 @@ install_via_curl() {
+   TEMP_DIR=$(mktemp -d -t teleport-XXXXXXXXXX)
+ 
+   TELEPORT_FILENAME="teleport$TELEPORT_SUFFIX-v$TELEPORT_VERSION-linux-$ARCH-bin.tar.gz"
+-  URL="https://cdn.teleport.dev/${TELEPORT_FILENAME}"
++  URL="${TELEPORT_MIRROR_URL:-https://cdn.teleport.dev}/${TELEPORT_FILENAME}"
+   download "${URL}" "${TEMP_DIR}/${TELEPORT_FILENAME}"
+ 
+   TMP_CHECKSUM="${TEMP_DIR}/${TELEPORT_FILENAME}.sha256"
+@@ -221,8 +223,22 @@ install_via_curl() {
+ 
+   set -x
+   cd "$TEMP_DIR"
+-  # shellcheck disable=SC2086
+-  $SUDO $SHA_COMMAND -c "$TMP_CHECKSUM"
++  if [[ -n "$TELEPORT_MIRROR_URL" ]]; then
++    read -r expected_checksum checksum_name < "$TMP_CHECKSUM"
++    if [[ ! "$expected_checksum" =~ ^[0-9a-f]{64}$ || "$checksum_name" != "$TELEPORT_FILENAME" ]]; then
++      echo "ERROR: Invalid mirror checksum file" >&2
++      exit 1
++    fi
++    actual_checksum=$($SHA_COMMAND "$TELEPORT_FILENAME")
++    actual_checksum=${actual_checksum%% *}
++    if [[ "$actual_checksum" != "$expected_checksum" ]]; then
++      echo "ERROR: Mirror archive checksum mismatch" >&2
++      exit 1
++    fi
++  else
++    # shellcheck disable=SC2086
++    $SUDO $SHA_COMMAND -c "$TMP_CHECKSUM"
++  fi
+   cd -
+ 
+   $SUDO tar -xzf "${TEMP_DIR}/${TELEPORT_FILENAME}" -C "$TEMP_DIR"
+@@ -327,6 +343,18 @@ install_teleport() {
+     ;;
+   esac
+ 
++  if [[ -n "$TELEPORT_MIRROR_URL" ]]; then
++    install_via_curl
++    # Discovery's configure step expects an existing systemd service.
++    if [[ -d /run/systemd/system ]] && command -v systemctl >/dev/null 2>&1; then
++      if ! systemctl cat teleport.service >/dev/null 2>&1; then
++        $SUDO /usr/local/bin/teleport install systemd -o /etc/systemd/system/teleport.service
++        $SUDO systemctl daemon-reload
++      fi
++    fi
++    return
++  fi
++
+   # select install method based on distribution
+   # if ID is debian derivative, run apt-get
+   case "$ID" in
+diff --git a/lib/web/scripts/install_node.go b/lib/web/scripts/install_node.go
+index eb91734456..3eb2d2d23b 100644
+--- a/lib/web/scripts/install_node.go
++++ b/lib/web/scripts/install_node.go
+@@ -172,6 +172,7 @@ func GetNodeInstallScript(ctx context.Context, opts InstallNodeScriptOptions) (s
+ 		"packageName":             opts.InstallOptions.TeleportFlavor,
+ 		"repoChannel":             repoChannel,
+ 		"installUpdater":          opts.InstallOptions.AutoupdateStyle.String(),
++		"mirrorMode":              strconv.FormatBool(opts.InstallOptions.MirrorMode),
+ 		"version":                 shsprintf.EscapeDefaultContext(opts.InstallOptions.TeleportVersion.String()),
+ 		"appInstallMode":          strconv.FormatBool(opts.AppServiceEnabled),
+ 		"appServerResourceLabels": appServerResourceLabels,
+diff --git a/lib/web/scripts/node-join/install.sh b/lib/web/scripts/node-join/install.sh
+index 22f19b6d95..9f3e04b327 100755
+--- a/lib/web/scripts/node-join/install.sh
++++ b/lib/web/scripts/node-join/install.sh
+@@ -1099,7 +1099,11 @@ is_repo_available() {
+     return 1
+ }
+ 
+-if [[ "$TELEPORT_FORMAT" == "updater" ]]; then
++if [[ '{{.mirrorMode}}' == "true" ]]; then
++    log "Installing from the cluster-configured mirror."
++    install_from_updater
++    TELEPORT_FORMAT="mirror"
++elif [[ "$TELEPORT_FORMAT" == "updater" ]]; then
+     log "Installing from updater binary."
+     install_from_updater
+ elif is_repo_available; then
+diff --git a/lib/web/scripts/oneoff/oneoff.go b/lib/web/scripts/oneoff/oneoff.go
+index a4a974f971..de4c1e0aa4 100644
+--- a/lib/web/scripts/oneoff/oneoff.go
++++ b/lib/web/scripts/oneoff/oneoff.go
+@@ -57,6 +57,8 @@ var (
+ 
+ // OneOffScriptParams contains the required params to create a script that downloads and executes teleport binary.
+ type OneOffScriptParams struct {
++	// VerifyChecksum validates the downloaded archive before executing its entrypoint.
++	VerifyChecksum bool
+ 	// TeleportCommandPrefix is a prefix command to use when calling teleport command.
+ 	// Acceptable values are: "sudo"
+ 	TeleportCommandPrefix string
+diff --git a/lib/web/scripts/oneoff/oneoff.sh b/lib/web/scripts/oneoff/oneoff.sh
+index 1b86eec3fe..55b23d14df 100644
+--- a/lib/web/scripts/oneoff/oneoff.sh
++++ b/lib/web/scripts/oneoff/oneoff.sh
+@@ -47,7 +47,25 @@ teleportTarballName() {
+ main() {
+     tarballName=$(teleportTarballName)
+     echo "Downloading from ${cdnBaseURL}/${tarballName} and extracting teleport to ${tempDir} ..."
++    {{if .VerifyChecksum}}
++    curl --show-error --fail --location "${cdnBaseURL}/${tarballName}" -o "${tempDir}/${tarballName}"
++    curl --show-error --fail --location "${cdnBaseURL}/${tarballName}.sha256" -o "${tempDir}/${tarballName}.sha256"
++    read -r expectedChecksum checksumName < "${tempDir}/${tarballName}.sha256"
++    case "$expectedChecksum" in *[!0-9a-f]*|'') echo "Invalid checksum" >&2; exit 1;; esac
++    if [ "${#expectedChecksum}" -ne 64 ] || [ "$checksumName" != "$tarballName" ]; then
++        echo "Invalid checksum file" >&2
++        exit 1
++    fi
++    actualChecksum=$(sha256sum "${tempDir}/${tarballName}")
++    actualChecksum=${actualChecksum%% *}
++    if [ "$actualChecksum" != "$expectedChecksum" ]; then
++        echo "Archive checksum mismatch" >&2
++        exit 1
++    fi
++    tar xzf "${tempDir}/${tarballName}" -C "${tempDir}" "${teleportFlavor}/${entrypoint}"
++    {{else}}
+     curl --show-error --fail --location "${cdnBaseURL}/${tarballName}" | tar xzf - -C "${tempDir}" "${teleportFlavor}/${entrypoint}"
++    {{end}}
+ 
+     mkdir -p "${tempDir}/bin"
+     mv "${tempDir}/${teleportFlavor}/${entrypoint}" "${tempDir}/bin/${entrypoint}"

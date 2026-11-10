@@ -41,6 +41,9 @@ def check_header(binary, target_os, target_arch):
 
 
 def main():
+    # Verify the binaries we just built, without a configured client updater
+    # replacing them during the version and help checks.
+    os.environ['TELEPORT_TOOLS_VERSION'] = 'off'
     root = Path(os.environ.get('CLIENT_OUT_DIR', '/out/tsh-clients'))
     version = os.environ['TELEPORT_VERSION']
     commit = os.environ['TELEPORT_COMMIT']
@@ -76,6 +79,35 @@ def main():
     # Execute on the target host: missing shared libraries fail these checks.
     subprocess.run([str(binary), '--help'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    tctl_name = 'tctl.exe' if target_os == 'windows' else 'tctl'
+    tctl = directory / 'bin' / tctl_name
+    check_header(tctl, target_os, target_arch)
+    tctl_info = output('go', 'version', '-m', str(tctl))
+    tctl_settings = dict(re.findall(r'^\s*build\s+([^=\s]+)=(.*)$', tctl_info, re.MULTILINE))
+    for key, expected in (('GOOS', target_os), ('GOARCH', target_arch), ('CGO_ENABLED', '1')):
+        if tctl_settings.get(key) != expected:
+            raise RuntimeError(f'{tctl}: expected {key}={expected}')
+    tctl_version = output(str(tctl), 'version')
+    if not re.search(r'(?<![0-9A-Za-z.+-])v?' + re.escape(version) + r'(?![0-9A-Za-z.+-])', tctl_version):
+        raise RuntimeError(f'{tctl} reports the wrong version: {tctl_version}')
+    subprocess.run([str(tctl), '--help'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    extra_binaries = {}
+    if target_os == 'darwin':
+        for extra_name in ('teleport', 'tbot', 'fdpass-teleport'):
+            extra = directory / 'bin' / extra_name
+            check_header(extra, target_os, target_arch)
+            if extra_name != 'fdpass-teleport':
+                extra_info = output('go', 'version', '-m', str(extra))
+                extra_settings = dict(re.findall(r'^\s*build\s+([^=\s]+)=(.*)$', extra_info, re.MULTILINE))
+                for key, expected in (('GOOS', target_os), ('GOARCH', target_arch)):
+                    if extra_settings.get(key) != expected:
+                        raise RuntimeError(f'{extra}: expected {key}={expected}')
+                extra_version = output(str(extra), 'version')
+                if not re.search(r'(?<![0-9A-Za-z.+-])v?' + re.escape(version) + r'(?![0-9A-Za-z.+-])', extra_version):
+                    raise RuntimeError(f'{extra} reports the wrong version: {extra_version}')
+                subprocess.run([str(extra), '--help'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            extra_binaries[extra_name] = sha256(extra)
+
     checksum = sha256(binary)
     (directory / 'SHA256SUMS').write_text(f'{checksum}  bin/{name}\n')
     shutil.copyfile('LICENSE', directory / 'LICENSE')
@@ -97,6 +129,10 @@ def main():
         'binaries': {name: {'sha256': checksum, 'go_build_info': build_info, 'version': reported}},
     }
     (directory / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    mirror_manifest = {'teleport_version': version, 'source_commit': commit, 'os': target_os,
+                       'architecture': target_arch,
+                       'binaries': {name: sha256(binary), tctl_name: sha256(tctl), **extra_binaries}}
+    (directory / 'mirror-client.json').write_text(json.dumps(mirror_manifest, indent=2) + '\n')
 
     basename = f'tsh-{version}-{target_os}-{target_arch}'
     if target_os == 'windows':

@@ -12,7 +12,7 @@ import textwrap
 import unittest
 
 
-WORKFLOW = Path(__file__).resolve().parents[2] / '.github/workflows/build-linux-amd64.yml'
+WORKFLOW = Path(__file__).resolve().parents[2] / '.github/workflows/release-teleport.yml'
 PUBLISH_STEP = textwrap.dedent(WORKFLOW.read_text().split(
     '      - name: Create release and upload tested artifacts\n', 1)[1].split(
     '        run: |\n', 1)[1])
@@ -46,21 +46,36 @@ class ReleasePublicationTests(unittest.TestCase):
         """))
         gh.chmod(0o755)
 
-    def publish(self, build='42.1', version='18.10.0', corrupt=False):
+    def publish(self, build='42.1', version='18.10.0', corrupt=False, corrupt_mirror=False):
         dist = self.root / 'dist'
         if dist.exists():
             shutil.rmtree(dist)
         dist.mkdir()
-        names = [f'teleport-{version}-linux-amd64.tar.gz']
-        names.extend(f'tsh-{version}-{suffix}' for suffix in (
+        distribution = f'{version}-{build}'
+        names = [f'teleport-{distribution}-linux-amd64.tar.gz']
+        names.extend(f'tsh-{distribution}-{suffix}' for suffix in (
             'windows-amd64.zip', 'darwin-arm64.tar.gz', 'darwin-amd64.tar.gz'))
         for name in names:
             payload = f'{build}: {name}'.encode()
             (dist / name).write_bytes(payload)
             checksum = hashlib.sha256(payload).hexdigest()
             (dist / f'{name}.sha256').write_text(f'{checksum}  {name}\n')
+        mirror = dist / 'mirror'
+        mirror.mkdir()
+        mirror_names = (f'teleport-v{distribution}-linux-amd64-bin.tar.gz',
+                        f'teleport-v{distribution}-windows-amd64-bin.zip',
+                        f'teleport-v{distribution}-darwin-amd64-bin.tar.gz',
+                        f'teleport-v{distribution}-darwin-arm64-bin.tar.gz',
+                        f'teleport-tools-{distribution}.pkg')
+        for mirror_name in mirror_names:
+            mirror_payload = f'mirror: {mirror_name}'.encode()
+            (mirror / mirror_name).write_bytes(mirror_payload)
+            (mirror / f'{mirror_name}.sha256').write_text(
+                f'{hashlib.sha256(mirror_payload).hexdigest()}  {mirror_name}\n')
         if corrupt:
             (dist / names[-1]).write_bytes(b'damaged')
+        if corrupt_mirror:
+            (mirror / mirror_names[-1]).write_bytes(b'damaged')
         env = dict(os.environ,
                    PATH=str(self.root / 'tools') + os.pathsep + os.environ['PATH'],
                    RELEASES_DIR=str(self.root / 'releases'),
@@ -68,19 +83,19 @@ class ReleasePublicationTests(unittest.TestCase):
                    TELEPORT_VERSION=version, TELEPORT_COMMIT='a' * 40,
                    GITHUB_SHA='b' * 40, RELEASE_BUILD=build,
                    RUNNER_TEMP=str(self.root),
-                   CONTAINER_IMAGE=f'ghcr.io/ontracon/teleport-build:{version.replace("+", "-")}-build.{build}',
+                   CONTAINER_IMAGE=f'ghcr.io/ontracon/teleport-build:{version.replace("+", "-")}-{build}',
                    CONTAINER_DIGEST='sha256:' + 'c' * 64)
         result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', PUBLISH_STEP],
                                 cwd=self.root, env=env, capture_output=True, text=True)
-        return result, self.root / 'releases' / f'v{version}-build.{build}'
+        return result, self.root / 'releases' / f'v{version}-{build}'
 
     def assert_published(self, result, release, build):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         archives = [path for path in release.iterdir()
-                    if path.name.endswith(('.tar.gz', '.zip'))]
-        self.assertEqual(len(archives), 4)
+                    if path.name.endswith(('.tar.gz', '.zip', '.pkg'))]
+        self.assertEqual(len(archives), 9)
         for archive in archives:
-            self.assertIn(f'-build.{build}-', archive.name)
+            self.assertIn(f'-{build}', archive.name)
             checksum, name = Path(str(archive) + '.sha256').read_text().split()
             self.assertEqual(name, archive.name)
             self.assertEqual(checksum, hashlib.sha256(archive.read_bytes()).hexdigest())
@@ -91,7 +106,7 @@ class ReleasePublicationTests(unittest.TestCase):
         self.assertIn(f'Release build: `{build}`.', notes)
         self.assertIn('ghcr.io/ontracon/teleport-build@sha256:' + 'c' * 64, notes)
         self.assertIn('image: ghcr.io/ontracon/teleport-build', notes)
-        self.assertIn(f'-build.{build}"', notes)
+        self.assertIn(f'-{build}"', notes)
         self.assertNotIn('\\\\"', notes)
 
     def test_repeated_version_preserves_previous_release(self):
@@ -130,6 +145,11 @@ class ReleasePublicationTests(unittest.TestCase):
 
     def test_corrupt_archive_prevents_publication(self):
         result, release = self.publish(corrupt=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(release.exists())
+
+    def test_corrupt_mirror_archive_prevents_publication(self):
+        result, release = self.publish(corrupt_mirror=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(release.exists())
 

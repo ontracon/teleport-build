@@ -53,7 +53,7 @@ def fetch(url, javascript=False):
 
 def main():
     binaries = Path(os.environ.get('OUT_DIR', '/out')) / 'bin'
-    version = os.environ.get('TELEPORT_VERSION', '18.10.0')
+    version = os.environ.get('TELEPORT_DISTRIBUTION_VERSION', os.environ.get('TELEPORT_VERSION', '18.10.0'))
     with tempfile.TemporaryDirectory(prefix='teleport-build-smoke-') as directory:
         root = Path(directory)
         config = root / 'teleport.yaml'

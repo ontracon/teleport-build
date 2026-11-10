@@ -1,0 +1,63 @@
+name: teleport-mirror-lab
+
+x-agent: &agent
+  image: teleport-mirror-lab-agent:local
+  build:
+    context: ../..
+    dockerfile: dev/mirror-lab/agent.Dockerfile
+  platform: linux/amd64
+  privileged: true
+  cgroup: private
+  tmpfs:
+    - /run
+    - /run/lock
+    - /tmp:exec
+  volumes:
+    - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    - ./generated:/lab:ro
+  stop_grace_period: 20s
+
+services:
+  mirror:
+    image: nginx:1.29-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./generated/mirror:/srv/mirror:ro
+      - ./generated:/lab:ro
+    ports:
+      - "127.0.0.1:18443:8443"
+
+  teleport:
+    image: teleport-mirror-lab:${LAB_TARGET_VERSION:-18.10.0-11.1}
+    platform: linux/amd64
+    pull_policy: never
+    command: ["start", "--config=/lab/teleport.yaml"]
+    environment:
+      TELEPORT_CDN_BASE_URL: https://mirror:8443
+      TELEPORT_UNSTABLE_AGENT_ROLLOUT_SYNC_PERIOD: 5s
+      SSL_CERT_FILE: /lab/ca.pem
+    volumes:
+      - ./generated:/lab:ro
+      - teleport-data:/var/lib/teleport
+    ports:
+      - "127.0.0.1:13080:3080"
+    depends_on:
+      - mirror
+
+  agent-direct:
+    <<: *agent
+  agent-web:
+    <<: *agent
+  agent-discovery:
+    <<: *agent
+  agent-existing:
+    <<: *agent
+  agent-managed:
+    <<: *agent
+  agent-suffix:
+    <<: *agent
+  agent-bot:
+    <<: *agent
+
+volumes:
+  teleport-data:

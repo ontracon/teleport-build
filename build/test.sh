@@ -4,6 +4,9 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 export OUT_DIR="${OUT_DIR:-/out}"
 cd "${SOURCE_DIR:-/src/teleport}"
+if [[ -n "${TELEPORT_BUILD_NUMBER:-}" ]]; then
+  export TELEPORT_DISTRIBUTION_VERSION="${TELEPORT_VERSION}-${TELEPORT_BUILD_NUMBER}"
+fi
 export CARGO_BUILD_JOBS="${BUILD_JOBS:-2}"
 export GOMAXPROCS="${BUILD_JOBS:-2}"
 export GOFLAGS="-p=${BUILD_JOBS:-2}"
@@ -57,13 +60,14 @@ run_go_suite() {
   fi
   report_disk "before ${name}"
   make --no-print-directory test-go-unit FIDO2=off \
+    VERSION="${TELEPORT_DISTRIBUTION_VERSION:-${TELEPORT_VERSION:-18.10.0}}" \
     STATIC_LIBS="-L/usr/libbpf-${libbpf_version}/lib64 -lbpf -Wl,-Bdynamic -lelf -lz" \
     SUBJECT="$subject" FLAGS="$flags" TEST_LOG_DIR="${results_dir}/${name}"
 }
 
-run_go_suite upstream './lib/config ./lib/modules ./lib/tbot/config'
+run_go_suite upstream './lib/config ./lib/modules ./lib/tbot/config ./lib/web/scripts ./lib/web/scripts/oneoff'
 run_go_suite zitadel-adapter './lib/zitadeloidc'
-run_go_suite auth-bridge './lib/auth' '^TestZitadel'
+run_go_suite auth-bridge './lib/auth' '^TestZitadel|^TestMirrorDefaultInstaller'
 run_go_suite account-labels './lib/web/ui' '^TestZitadel|^TestNewUserContext'
 run_go_suite proxy-bridge './lib/web' '^TestZitadel'
 run_go_suite plugin './lib/service' '^TestZitadel'

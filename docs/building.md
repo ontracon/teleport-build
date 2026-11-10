@@ -45,7 +45,7 @@ stages between separate builds. The target definitions live in
 
 `teleport-zitadel-lab:18.10.0` extends the shared runtime base with `tsh`, the mock
 IdP, Python, OpenSSL, curl, and local setup/check scripts. It retains its original
-bare `teleport` entrypoint and explicit `start` commands; production-only launch
+bare `teleport` entrypoint and explicit `start` commands. Production-only launch
 settings do not change the lab. The mock and real Compose
 environments use this target. `make lab` and `make real-lab` reuse an existing
 image for the selected version and platform, building it when missing. Run
@@ -150,7 +150,7 @@ runtime ABI. The container supplies matching libraries.
 
 ## Release CI
 
-[Build Teleport and tsh clients](../.github/workflows/build-linux-amd64.yml)
+[Build Teleport and tsh clients](../.github/workflows/release-teleport.yml)
 is manually dispatched. Its Linux job runs `make release-build`, exporting the
 binary artifacts and loading the production image in one Bake graph using the
 same Debian toolchains, source preparation, patched Web UI, and verification
@@ -165,16 +165,43 @@ and every recorded integration hash against the current adapter and patches.
 The workflow publishes the tested production image to GHCR and creates the
 GitHub release with archives and checksums only after Linux and all native client
 jobs succeed. The release job loads the tested image archive rather than rebuilding
-it; it verifies the image ID, source/version labels, and platform before pushing.
+it. It verifies the image ID, source/version labels, and platform before pushing.
 The release notes record its numbered image tag and registry digest.
 
-Each publication creates a numbered release, such as
-`v18.10.0-build.42.1`, with a title ending in `(build 42.1)`. The numbers are
-the workflow run number and run attempt. Numbering is workflow-wide rather
-than restarting for each Teleport version. A new dispatch increments the run
-number, and rerunning a workflow increments the attempt. Archive and checksum
-filenames also include `-build.42.1`, while the binaries retain the upstream
-Teleport version.
+Each publication creates a numbered release, such as `v18.10.0-42.1`, with a
+title ending in `(build 42.1)`. The numbers are the workflow run number and
+run attempt. Numbering is workflow-wide rather than restarting for each
+Teleport version. A new dispatch increments the run number, and rerunning a
+workflow increments the attempt. Archive and checksum filenames and binary
+versions include the same numeric suffix. Existing `-build.*` releases remain
+unchanged.
+
+The mirror work is being implemented for numeric-suffix versions such as
+`18.10.0-10.1`. Set `TELEPORT_BUILD_NUMBER=10.1` for a local build to stamp
+that version into the Teleport binaries and generate an upstream-layout Linux
+archive under the artifacts output's `mirror/` directory. The release workflow
+also builds `teleport-v<version>-windows-amd64-bin.zip`, macOS host archives
+`teleport-v<version>-darwin-{amd64,arm64}-bin.tar.gz`, and the universal
+`teleport-tools-<version>.pkg` for macOS amd64 and arm64. Each has a `.sha256`
+file. Windows and macOS contain both `tsh` and `tctl`. The macOS host archives
+also include `teleport`, `tbot`, and `fdpass-teleport`. The macOS daemon uses
+minimal web assets and is intended for host-agent use. The
+macOS package and client binaries are not signed or notarized, and the Windows
+executables are not signed. Verify deployment requirements before distribution.
+These assets can be served over HTTPS using the Teleport CDN URL layout.
+Publishing the host archives does not by itself enable macOS agent enrollment:
+the current mirror-mode join script delegates to a Linux-oriented installer.
+The macOS mirror installer needs changes and native launchd end-to-end testing.
+Set `TELEPORT_CDN_BASE_URL` to the mirror's HTTPS base URL on both Auth and
+Proxy processes: Auth selects the built-in discovery installer and Proxy renders
+the installation scripts. Managed agents retain the mirror URL in their updater
+configuration. Client tools use their own `TELEPORT_CDN_BASE_URL` setting.
+Each component must trust the mirror's TLS certificate. Custom installer
+resources need to be migrated separately.
+The [local mirror lab](../dev/mirror-lab/README.md) exercises this path. It is
+not yet a production deployment guide. The release workflow uploads the mirror
+archives to the GitHub release for retrieval, but does not publish them to an
+external mirror: that origin and its publication credentials are not configured.
 
 Each release tag targets the build repository commit used by that run, and
 the generated notes record the upstream commit, build repository commit, and
@@ -192,7 +219,7 @@ usage are uploaded with the test reports, including when verification fails.
 
 The Linux runner needs Make, Python 3, Docker access, and Buildx Bake with a
 Linux amd64 Docker engine. CI installs Helm for the production smoke test.
-The release runner also needs Docker and Python 3; `packages: write` on its
+The release runner also needs Docker and Python 3. `packages: write` on its
 GitHub token permits GHCR publication. Compilers and native development packages
 are provided by the Docker build. Persistent BuildKit caches on a self-hosted
 runner can be reused across releases. Exported upstream reports come from

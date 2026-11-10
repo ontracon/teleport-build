@@ -164,13 +164,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', default='teleport-zitadel:18.10.0')
     parser.add_argument('--version', default='18.10.0')
+    parser.add_argument('--binary-version', help='Stamped binary version when different from the upstream chart version')
     parser.add_argument('--chart', type=Path, help='Use an already downloaded chart directory')
     args = parser.parse_args()
     check_image(args.image)
     with tempfile.TemporaryDirectory(prefix='teleport-runtime-smoke-') as directory:
         root = Path(directory)
         startup = check_chart(args.image, args.version, root, args.chart)
-        check_server(args.image, args.version, root, startup)
+        check_server(args.image, args.binary_version or args.version, root, startup)
 
 
 if __name__ == '__main__':

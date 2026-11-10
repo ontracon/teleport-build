@@ -10,6 +10,10 @@ variable "TELEPORT_VERSION" {
   default = "18.10.0"
 }
 
+variable "TELEPORT_BUILD_NUMBER" {
+  default = ""
+}
+
 variable "SOURCE_REVISION" {
   default = ""
 }
@@ -29,6 +33,7 @@ target "common" {
   args = {
     BUILD_JOBS       = BUILD_JOBS
     TELEPORT_VERSION = TELEPORT_VERSION
+    TELEPORT_BUILD_NUMBER = TELEPORT_BUILD_NUMBER
   }
 }
 
@@ -40,7 +45,7 @@ target "runtime" {
     "org.opencontainers.image.title"    = "Teleport Community with Zitadel"
     "org.opencontainers.image.source"   = SOURCE_URL
     "org.opencontainers.image.revision" = SOURCE_REVISION
-    "org.opencontainers.image.version"  = TELEPORT_VERSION
+    "org.opencontainers.image.version"  = TELEPORT_BUILD_NUMBER != "" ? "${TELEPORT_VERSION}-${TELEPORT_BUILD_NUMBER}" : TELEPORT_VERSION
   }
 }
 

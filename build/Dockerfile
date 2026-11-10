@@ -86,7 +86,9 @@ RUN /opt/teleport-build/prepare-source.sh --source /src/teleport \
       --adapter /opt/zitadel-adapter --integration /opt/zitadel-integration
 
 FROM prepared AS build
-COPY build/build.sh build/verify-build.py /opt/teleport-build/
+ARG TELEPORT_BUILD_NUMBER=""
+ENV TELEPORT_BUILD_NUMBER=${TELEPORT_BUILD_NUMBER}
+COPY build/build.sh build/verify-build.py build/stamp-version.py /opt/teleport-build/
 ENV TELEPORT_INTEGRATION_DIR=/opt/zitadel-integration
 RUN --mount=type=cache,id=teleport-go-mod,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,id=teleport-debian-go-build,target=/root/.cache/go-build,sharing=locked \
@@ -97,13 +99,18 @@ RUN --mount=type=cache,id=teleport-go-mod,target=/go/pkg/mod,sharing=locked \
     TELEPORT_COMMIT="$(cat /opt/teleport-build/upstream.commit)" bash /opt/teleport-build/build.sh
 
 FROM build AS verified
-COPY build/test.sh build/smoke-test.py /opt/teleport-build/
+COPY build/test.sh build/smoke-test.py build/package-mirror.py /opt/teleport-build/
 RUN --mount=type=cache,id=teleport-go-mod,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,id=teleport-debian-go-build,target=/root/.cache/go-build,sharing=locked \
     --mount=type=cache,id=teleport-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=teleport-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=teleport-debian-cargo-target,target=/src/teleport/target,sharing=locked \
-    bash /opt/teleport-build/test.sh
+    bash /opt/teleport-build/test.sh \
+    && if [[ -n "${TELEPORT_BUILD_NUMBER}" ]]; then \
+         python3 /opt/teleport-build/package-mirror.py --source /src/teleport \
+           --artifacts /out --output /out/mirror \
+           --version "${TELEPORT_VERSION}-${TELEPORT_BUILD_NUMBER}"; \
+       fi
 
 FROM go-toolchain AS mock-idp
 ARG BUILD_JOBS=2

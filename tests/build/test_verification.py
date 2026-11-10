@@ -118,7 +118,7 @@ class VerificationTests(unittest.TestCase):
             self.assertTrue((report / 'unit-tests.xml').is_file())
             self.assertTrue((report / 'unit-tests.json').is_file())
         self.assertIn('-run=^TestZitadel|^TestNewUserContext', records[3]['flags'])
-        self.assertEqual(records[0]['settings']['SUBJECT'], './lib/config ./lib/modules ./lib/tbot/config')
+        self.assertEqual(records[0]['settings']['SUBJECT'], './lib/config ./lib/modules ./lib/tbot/config ./lib/web/scripts ./lib/web/scripts/oneoff')
         self.assertEqual(records[1]['settings']['SUBJECT'], './lib/zitadeloidc')
         self.assertEqual(records[2]['settings']['SUBJECT'], './lib/auth')
         self.assertEqual(records[3]['settings']['SUBJECT'], './lib/web/ui')

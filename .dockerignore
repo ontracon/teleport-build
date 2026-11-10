@@ -11,6 +11,9 @@
 !integration/upstream.commit
 !dev/
 !dev/setup.py
+!dev/mirror-lab/
+!dev/mirror-lab/agent.Dockerfile
+!dev/mirror-lab/agent-entrypoint.sh
 !tests/
 !tests/integration/
 !tests/integration/cli-smoke.py

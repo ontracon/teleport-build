@@ -6,7 +6,7 @@ labs. It is not an Enterprise or FIPS image.
 
 ## Image and release lifecycle
 
-The manual [release workflow](../.github/workflows/build-linux-amd64.yml) builds
+The manual [release workflow](../.github/workflows/release-teleport.yml) builds
 Linux artifacts and the production image in one Buildx Bake graph. It then tests
 the production image, exports it as a checked Docker archive, and transfers that
 exact image to the release job. There is no second compilation at publication.
@@ -15,15 +15,15 @@ Publication waits for the verified Linux build and all native client jobs.
 The release job uses `GITHUB_TOKEN` with `packages: write` to publish to:
 
 ```text
-ghcr.io/ontracon/teleport-build:18.10.0-build.<run>.<attempt>
+ghcr.io/ontracon/teleport-build:18.10.0-<run>.<attempt>
 ```
 
 The repository name follows the GitHub repository if this project is moved or
 forked. The build number matches the numbered GitHub release. Each dispatch/run
-attempt gets a separate tag; the workflow does not publish moving `latest` or
-bare upstream-version tags. The binaries retain their upstream Teleport version.
-An upstream version containing `+` has that character replaced by `-` in OCI
-image tags only.
+attempt gets a separate tag. The workflow does not publish moving `latest` or
+bare upstream-version tags. The binaries report the same numeric-suffix version
+as the published image tag, while the build manifest records the upstream
+source version separately.
 
 The publisher verifies the transported image ID, source revision label, upstream
 version label, and Linux amd64 platform before tagging and pushing. Release notes
@@ -36,7 +36,7 @@ new attempt number.
 
 - The organization/repository must permit Actions to publish GHCR packages.
 - New packages are private by default. Choose public visibility explicitly if
-  anonymous pulls are intended; the workflow does not change package visibility.
+  anonymous pulls are intended. The workflow does not change package visibility.
 - If the package already exists, ensure this repository has Actions write access
   in the package settings. The image's OCI source label links it to the repository.
 - For a private package, provide a suitable GHCR pull credential to Kubernetes
@@ -60,7 +60,7 @@ build number with a successfully published one:
 ```yaml
 enterprise: false
 image: ghcr.io/ontracon/teleport-build
-teleportVersionOverride: "18.10.0-build.42.1"
+teleportVersionOverride: "18.10.0-42.1"
 
 # Required only for a private package. Provision this secret before Helm runs.
 imagePullSecrets:
@@ -69,9 +69,9 @@ imagePullSecrets:
 
 `image` is a repository string, not an object with repository/tag keys. The chart
 appends the tag from `teleportVersionOverride`. Here the override selects our
-custom build of the matching upstream version; do not use it to bypass chart /
-server version alignment. The chart's existing image settings are tag-based;
-the digest in release notes is an audit/verification reference, not a digest-only
+custom build of the matching upstream version. Do not use it to bypass chart /
+server version alignment. The chart's existing image settings are tag-based.
+The digest in release notes is an audit/verification reference, not a digest-only
 value that can be substituted into `teleportVersionOverride`.
 
 For private pulls, create a `kubernetes.io/dockerconfigjson` secret in the Teleport
@@ -118,7 +118,7 @@ CMD []
 
 Mount configuration read-only at `/etc/teleport/teleport.yaml` and persist
 `/var/lib/teleport`. Chart arguments such as `--diag-addr=0.0.0.0:3000` are appended
-to this complete invocation. `teleport` and `tctl` remain on `PATH`; the chart can
+to this complete invocation. `teleport` and `tctl` remain on `PATH`. The chart can
 override the entrypoint for `teleport configure --test` and `teleport wait`.
 `SIGQUIT` is forwarded through `dumb-init` for graceful shutdown.
 
@@ -139,7 +139,7 @@ SOURCE_REVISION="$(git rev-parse HEAD)" make release-build
 ```
 
 Docker, Helm 3 (CI uses 3.18.6), and Python 3 are needed for the production smoke
-test. The image must already exist locally; the test does not rebuild it:
+test. The image must already exist locally. The test does not rebuild it:
 
 ```sh
 make test-runtime
@@ -173,5 +173,5 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/build -p 'test_*
 ```
 
 Linux amd64 is the initial published platform. ARM64 publication requires its own
-native build and verification; do not infer support from an amd64 smoke test under
+native build and verification. Do not infer support from an amd64 smoke test under
 emulation.
