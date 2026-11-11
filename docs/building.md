@@ -199,9 +199,10 @@ configuration. Client tools use their own `TELEPORT_CDN_BASE_URL` setting.
 Each component must trust the mirror's TLS certificate. Custom installer
 resources need to be migrated separately.
 The [local mirror lab](../dev/mirror-lab/README.md) exercises this path. It is
-not yet a production deployment guide. The release workflow uploads the mirror
-archives to the GitHub release for retrieval, but does not publish them to an
-external mirror: that origin and its publication credentials are not configured.
+not yet a production deployment guide. The release workflow publishes mirror
+archives to the GitHub release and the configured Azure Blob container. See
+[CDN configuration](cdn-configuration.md) for credentials, access and retrying
+publication for an existing release.
 
 Each release tag targets the build repository commit used by that run, and
 the generated notes record the upstream commit, build repository commit, and

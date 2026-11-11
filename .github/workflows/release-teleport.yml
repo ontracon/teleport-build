@@ -424,6 +424,17 @@ jobs:
           compression-level: 0
           retention-days: 14
 
+  publish_azure_mirror:
+    name: Publish release to Azure mirror
+    needs: [prepare, release]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-azure-mirror.yml
+    with:
+      release_tag: v${{ needs.prepare.outputs.distribution_version }}
+    secrets: inherit
+
   release:
     name: Publish tested image and release assets
     needs: [prepare, build, tsh, macos_mirror]

@@ -13,10 +13,55 @@ https://cdn.example.com/teleport-v18.10.0-10.1-linux-amd64-bin.tar.gz
 https://cdn.example.com/teleport-v18.10.0-10.1-linux-amd64-bin.tar.gz.sha256
 ```
 
-The release workflow attaches mirror assets to the GitHub release. It does not
-upload them to an external mirror. Enrolling and updating hosts download the
-archives directly, so they need network access to the mirror and must trust its
-TLS certificate. Keep older releases available for rollback.
+The release workflow attaches mirror assets to the GitHub release and publishes
+them to the configured Azure Blob container. Enrolling and updating hosts
+download the archives directly, so they need network access to the mirror and
+must trust its TLS certificate. Keep older releases available for rollback.
+
+## Publish to Azure Blob Storage
+
+Create the storage account and blob container before running a release. Create
+the GitHub environment `azure-cdn`, then set `AZURE_STORAGE_ACCOUNT` and
+`AZURE_STORAGE_CONTAINER` as environment or repository variables. Configure
+environment protection rules and permitted branches to control who can publish.
+
+Choose one authentication method:
+
+- **OIDC:** Configure an Azure Entra application or user-assigned managed
+  identity with a GitHub OIDC federated credential for this repository's
+  `azure-cdn` environment. Grant it `Storage Blob Data Contributor` on the
+  container. The built-in role also allows blob deletion. A custom role can
+  restrict that permission. Set `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and
+  `AZURE_SUBSCRIPTION_ID` as GitHub environment or repository variables. No
+  Azure client secret or storage key is required.
+- **Account key:** Add the Azure storage account access key as the GitHub
+  environment secret `AZURE_STORAGE_KEY`. The workflow uses the key whenever
+  this secret is present and skips Azure Login. The three OIDC variables are
+  not required. Azure Shared Key access must be enabled on the storage account.
+  The key grants broad access to the storage account, so use a dedicated
+  account and rotate the key when needed.
+
+To switch back to OIDC, remove the `AZURE_STORAGE_KEY` secret. The Azure
+container and its network configuration must allow the
+GitHub-hosted runner to upload. Every downloading host also needs access to the
+mirror URL. Configure anonymous reads or an appropriate network-accessible
+endpoint for those hosts. SAS query parameters are not supported in the mirror
+base URL.
+
+The release workflow first publishes the GitHub release, then publishes its
+five mirror archives and their checksums to Azure. A failed Azure job leaves the
+GitHub release available. To publish it later, run the **Publish Teleport release
+to Azure mirror** workflow with the exact release tag, such as `v18.10.0-42.1`.
+This workflow does not rebuild or create a release. It requires all five
+mirror-compatible archive and checksum pairs, so older releases without those
+assets cannot be published with it. All checksums are verified before upload.
+Existing blobs are never replaced. A retry accepts an existing blob only when
+its content matches, and finishes any remaining uploads. Publication is not
+atomic, so point a cluster at a new version only after the job succeeds.
+
+See [Microsoft's OIDC setup guide](https://learn.microsoft.com/en-us/azure/developer/github/connect-from-azure-openid-connect)
+for creating a federated credential. The OIDC subject should match the
+`azure-cdn` GitHub environment, not a branch-specific subject.
 
 ## Helm
 

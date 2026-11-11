@@ -1,0 +1,86 @@
+name: Publish Teleport release to Azure mirror
+run-name: Publish ${{ inputs.release_tag }} to Azure mirror
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing numeric release tag, for example v18.10.0-42.1
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: azure-cdn
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      AZURE_STORAGE_ACCOUNT: ${{ vars.AZURE_STORAGE_ACCOUNT }}
+      AZURE_STORAGE_CONTAINER: ${{ vars.AZURE_STORAGE_CONTAINER }}
+    steps:
+      - name: Check out publication helper
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download mirror assets from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'Expected a numeric release tag such as v18.10.0-42.1' >&2
+            exit 1
+          fi
+          version="${RELEASE_TAG#v}"
+          mkdir -p dist/mirror
+          names=("teleport-v${version}-linux-amd64-bin.tar.gz"
+                 "teleport-v${version}-windows-amd64-bin.zip"
+                 "teleport-v${version}-darwin-amd64-bin.tar.gz"
+                 "teleport-v${version}-darwin-arm64-bin.tar.gz"
+                 "teleport-tools-${version}.pkg")
+          patterns=()
+          for name in "${names[@]}"; do
+            patterns+=(--pattern "$name" --pattern "$name.sha256")
+          done
+          gh release download "$RELEASE_TAG" --dir dist/mirror "${patterns[@]}"
+          python3 build/publish-azure-mirror.py verify --directory dist/mirror --tag "$RELEASE_TAG"
+
+      - name: Select Azure authentication
+        id: auth
+        env:
+          AZURE_STORAGE_KEY: ${{ secrets.AZURE_STORAGE_KEY }}
+        run: |
+          if [[ -n "$AZURE_STORAGE_KEY" ]]; then
+            echo 'mode=key' >> "$GITHUB_OUTPUT"
+          else
+            echo 'mode=login' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sign in to Azure
+        if: steps.auth.outputs.mode == 'login'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Publish immutable mirror assets
+        env:
+          AZURE_STORAGE_KEY: ${{ secrets.AZURE_STORAGE_KEY }}
+        run: |
+          python3 build/publish-azure-mirror.py upload --directory dist/mirror --tag "$RELEASE_TAG" \
+            --account "$AZURE_STORAGE_ACCOUNT" --container "$AZURE_STORAGE_CONTAINER" \
+            --auth-mode '${{ steps.auth.outputs.mode }}'
